@@ -12,6 +12,7 @@ from front_end.UI_face import face_tab
 from front_end.UI_finalize import finalize_tab
 from front_end.UI_nsfw import nsfw_tab
 from front_end.UI_pose  import pose_tab
+from front_end.UI_video import video_tab
 
 def upload_files(files):
     import mimetypes
@@ -87,6 +88,7 @@ clear_uploads()
 
 with gr.Blocks() as app:
     main_tab(upload_files, clear_uploads, restart_script, update_previews)
+    video_tab()
     face_tab()
     body_tab()
     pose_tab()
