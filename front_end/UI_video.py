@@ -1,6 +1,104 @@
 import gradio as gr
+import os
+import cv2
+import shutil
+from pipelines.video import select_best_frames
 
-def video_tab():
+def process_video(uploads_dir, sample_rate, num_frames):
+    # Get all video files from uploads
+    video_files = [f for f in os.listdir(uploads_dir) 
+                  if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
+    
+    if not video_files:
+        return None, "No video files found in uploads folder."
+    
+    # Create temp folder for frames
+    temp_dir = os.path.join(uploads_dir, "video_frames_temp")
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+    os.makedirs(temp_dir)
+    
+    results = []
+    gallery_images = []
+    
+    # Process each video
+    for video_file in video_files:
+        video_path = os.path.join(uploads_dir, video_file)
+        video_temp_dir = os.path.join(temp_dir, os.path.splitext(video_file)[0])
+        os.makedirs(video_temp_dir, exist_ok=True)
+        
+        try:
+            # Select best frames using GPU acceleration
+            best_frames, fps = select_best_frames(
+                video_path, 
+                video_temp_dir, 
+                sample_rate=sample_rate,
+                num_frames=num_frames
+            )
+            
+            # Add to gallery for display
+            for frame in best_frames:
+                frame_path = frame["path"]
+                img = cv2.imread(frame_path)
+                if img is not None:
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert for display
+                    # Add score as text on image
+                    score_text = f"Score: {frame['score']:.2f}"
+                    cv2.putText(img, score_text, (10, 30), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    gallery_images.append((img, f"{os.path.basename(frame_path)} - {score_text}"))
+            
+            # Add results for this video
+            results.append({
+                "video": video_file,
+                "frames_processed": len(best_frames),
+                "fps": fps,
+                "best_frames": [
+                    {
+                        "filename": os.path.basename(f["path"]),
+                        "score": f["score"],
+                        "has_face": f.get("has_face", False)
+                    } 
+                    for f in best_frames
+                ]
+            })
+            
+        except Exception as e:
+            results.append({
+                "video": video_file,
+                "error": str(e)
+            })
+    
+    summary = f"Processed {len(video_files)} videos. Selected {len(gallery_images)} best frames."
+    return gallery_images, {"summary": summary, "results": results}
+
+def video_tab(uploads_dir):
     with gr.Tab("Video Tab"):
-        gr.Markdown("## Video")
-        # Add your UI components here
+        gr.Markdown("## Video Frame Selection")
+        
+        with gr.Row():
+            sample_rate = gr.Slider(
+                minimum=1, maximum=60, value=15, step=1, 
+                label="Sample Rate (frames to skip)"
+            )
+            num_frames = gr.Slider(
+                minimum=5, maximum=100, value=20, step=5,
+                label="Number of Best Frames to Select"
+            )
+        
+        # Status display
+        status = gr.Markdown("Click 'Process Videos' to extract the best frames from uploaded videos")
+        
+        # Run button
+        run_btn = gr.Button("Process Videos")
+        
+        # Results
+        gallery = gr.Gallery(label="Selected Best Frames", show_label=True, columns=4, height=600)
+        results_json = gr.JSON(label="Processing Results")
+        
+        # Run video processing when button is clicked
+        run_btn.click(
+            fn=lambda sr, nf: process_video(uploads_dir, sr, nf),
+            inputs=[sample_rate, num_frames],
+            outputs=[gallery, results_json]
+        )

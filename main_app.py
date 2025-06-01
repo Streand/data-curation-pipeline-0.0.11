@@ -91,7 +91,7 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"
 with gr.Blocks() as app:
     main_tab(upload_files, clear_uploads, restart_script, update_previews)
     face_tab(UPLOADS_DIR)
-    video_tab()
+    video_tab(UPLOADS_DIR)
     body_tab()
     pose_tab()
     camera_tab()
