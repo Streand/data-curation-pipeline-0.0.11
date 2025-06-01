@@ -3,7 +3,7 @@ import os
 import shutil
 import gradio as gr
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "front_end"))
-from front_end.gradio_main import main_tab
+from front_end.UI_main import main_tab
 
 def upload_files(files):
     base_dir = os.path.dirname(os.path.abspath(__file__))
