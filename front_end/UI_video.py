@@ -4,7 +4,7 @@ import cv2
 import shutil
 from pipelines.video import select_best_frames
 
-def process_video(uploads_dir, sample_rate, num_frames):
+def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prompt="a high quality portrait photo, professional headshot", use_scene_detection=True):
     # Get all video files from uploads
     video_files = [f for f in os.listdir(uploads_dir) 
                   if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
@@ -34,7 +34,10 @@ def process_video(uploads_dir, sample_rate, num_frames):
                 video_path, 
                 video_temp_dir, 
                 sample_rate=sample_rate,
-                num_frames=num_frames
+                num_frames=num_frames,
+                use_clip=use_clip,
+                clip_prompt=clip_prompt,
+                use_scene_detection=use_scene_detection
             )
             
             total_frames_processed += total_frames
@@ -90,6 +93,15 @@ def video_tab(uploads_dir):
                 label="Number of Best Frames to Select"
             )
         
+        with gr.Accordion("Advanced Options", open=False):
+            use_clip = gr.Checkbox(label="Use CLIP for aesthetic scoring", value=True)
+            clip_prompt = gr.Textbox(
+                label="CLIP Prompt", 
+                value="a high quality portrait photo, professional headshot", 
+                visible=True
+            )
+            use_scene_detection = gr.Checkbox(label="Filter similar frames", value=True)
+        
         # Status display
         status = gr.Markdown("Click 'Process Videos' to extract the best frames from uploaded videos")
         
@@ -102,7 +114,9 @@ def video_tab(uploads_dir):
         
         # Run video processing when button is clicked
         run_btn.click(
-            fn=lambda sr, nf: process_video(uploads_dir, sr, nf),
-            inputs=[sample_rate, num_frames],
+            fn=lambda sr, nf, clip, prompt, scene: process_video(
+                uploads_dir, sr, nf, use_clip=clip, clip_prompt=prompt, use_scene_detection=scene
+            ),
+            inputs=[sample_rate, num_frames, use_clip, clip_prompt, use_scene_detection],
             outputs=[gallery, results_json, status]
         )
