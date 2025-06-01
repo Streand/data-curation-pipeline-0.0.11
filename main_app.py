@@ -46,16 +46,17 @@ def update_previews(_=None):
     import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
-    image_files = []
+    media_files = []  # Renamed from image_files to better reflect content
     file_names = []
     if os.path.exists(save_dir):
         for f in os.listdir(save_dir):
             full_path = os.path.join(save_dir, f)
             mime, _ = mimetypes.guess_type(full_path)
-            if mime and mime.startswith("image"):
-                image_files.append(full_path)
+            # Add both image and video files to the list
+            if mime and (mime.startswith("image") or mime.startswith("video")):
+                media_files.append(full_path)
             file_names.append(f)
-    return image_files, "\n".join(f"- {name}" for name in file_names)
+    return media_files, "\n".join(f"- {name}" for name in file_names)
 
 # Clean uploads folder on startup
 clear_uploads()

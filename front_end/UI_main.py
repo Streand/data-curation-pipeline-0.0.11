@@ -2,11 +2,11 @@ import gradio as gr
 import os
 import base64
 
-def generate_preview_html(image_paths):
+def generate_preview_html(file_paths):
     html = """
     <style>
-    .img-thumb { cursor:pointer; transition:box-shadow 0.2s; }
-    .img-thumb:hover { box-shadow:0 0 8px #fff; }
+    .img-thumb, .vid-thumb { cursor:pointer; transition:box-shadow 0.2s; }
+    .img-thumb:hover, .vid-thumb:hover { box-shadow:0 0 8px #fff; }
     .img-overlay-bg {
         display:none; position:fixed; z-index:9999; left:0; top:0; width:100vw; height:100vh;
         background:rgba(0,0,0,0.85); align-items:center; justify-content:center;
@@ -16,11 +16,12 @@ def generate_preview_html(image_paths):
         position:relative; background:transparent; padding:0; border-radius:8px;
         max-width:90vw; max-height:90vh; display:flex; align-items:center; justify-content:center;
     }
-    .img-overlay-content img { 
+    .img-overlay-content img, .img-overlay-content video { 
         max-width:80vw; 
         max-height:80vh; 
         border-radius:8px; 
         box-shadow:0 0 24px #000; 
+        background:#222;
     }
     .img-overlay-close {
         position:absolute; top:-32px; right:-32px; color:#fff; background:#222; border-radius:50%; width:32px; height:32px;
@@ -28,38 +29,46 @@ def generate_preview_html(image_paths):
         z-index:10001;
     }
     @media (max-width:600px) {
-        .img-overlay-content img { max-width:98vw; max-height:60vh; }
+        .img-overlay-content img, .img-overlay-content video { max-width:98vw; max-height:60vh; }
     }
     </style>
     <div id="img-overlay-bg" class="img-overlay-bg" onclick="this.classList.remove('active');">
         <div class="img-overlay-content" onclick="event.stopPropagation();">
             <span class="img-overlay-close" onclick="document.getElementById('img-overlay-bg').classList.remove('active');">&times;</span>
-            <img id="img-overlay-img" src="" />
+            <img id="img-overlay-img" src="" style="display:none;" />
+            <video id="img-overlay-vid" src="" style="display:none;" controls></video>
         </div>
     </div>
     <div style="display: flex; flex-wrap: wrap; gap: 10px;">
     """
-    
-    # Generate thumbnails with INLINE onclick handlers (this is the key change)
-    for idx, path in enumerate(image_paths):
+
+    for idx, path in enumerate(file_paths):
         try:
             with open(path, "rb") as f:
-                img_data = f.read()
-            img_b64 = base64.b64encode(img_data).decode('utf-8')
+                file_data = f.read()
             ext = os.path.splitext(path)[1].lower()
-            mime = "image/png" if ext == ".png" else "image/jpeg"
-            thumb = f"data:{mime};base64,{img_b64}"
-            
-            # Direct inline handler - no JavaScript needed
-            html += f'''<img 
-                class="img-thumb" 
-                src="{thumb}" 
-                onclick="document.getElementById('img-overlay-img').src='{thumb}';document.getElementById('img-overlay-bg').classList.add('active');event.stopPropagation();" 
-                style="height:120px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;">'''
-                
+            if ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"]:
+                mime = "image/png" if ext == ".png" else "image/jpeg"
+                thumb = f"data:{mime};base64,{base64.b64encode(file_data).decode('utf-8')}"
+                html += f'''<img 
+                    class="img-thumb" 
+                    src="{thumb}" 
+                    onclick="document.getElementById('img-overlay-img').src='{thumb}';document.getElementById('img-overlay-img').style.display='block';document.getElementById('img-overlay-vid').style.display='none';document.getElementById('img-overlay-bg').classList.add('active');event.stopPropagation();" 
+                    style="height:120px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;">'''
+            elif ext in [".mp4", ".webm", ".ogg"]:
+                mime = "video/mp4" if ext == ".mp4" else ("video/webm" if ext == ".webm" else "video/ogg")
+                vid_b64 = f"data:{mime};base64,{base64.b64encode(file_data).decode('utf-8')}"
+                html += f'''<video 
+                    class="vid-thumb" 
+                    src="{vid_b64}" 
+                    onclick="document.getElementById('img-overlay-vid').src='{vid_b64}';document.getElementById('img-overlay-vid').style.display='block';document.getElementById('img-overlay-img').style.display='none';document.getElementById('img-overlay-bg').classList.add('active');event.stopPropagation();" 
+                    style="height:120px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;" 
+                    muted></video>'''
+            else:
+                html += '<div style="width:120px; height:120px; border:1px solid orange; color:#fff; display:flex; align-items:center; justify-content:center;">Unsupported</div>'
         except Exception:
             html += '<div style="width:120px; height:120px; border:1px solid red; color:#fff; display:flex; align-items:center; justify-content:center;">Error</div>'
-    
+
     html += "</div>"
     return html
 
