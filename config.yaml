@@ -1,0 +1,19 @@
+# Configuration settings for the Data Curation Pipeline
+
+input:
+  image_path: "path/to/default/image.jpg"
+  video_path: "path/to/default/video.mp4"
+
+output:
+  results_path: "path/to/save/results/"
+  export_format: "json"
+
+pipeline:
+  face_analysis: true
+  clothing_analysis: true
+  pose_analysis: true
+  nsfw_analysis: false
+
+logging:
+  level: "INFO"
+  file: "logs/pipeline.log"
