@@ -2,10 +2,8 @@ import sys
 import os
 import shutil
 import gradio as gr
-import sys
-import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "front_end"))
-from gradio_main import main_tab
+from front_end.gradio_main import main_tab
 
 def upload_files(files):
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +34,7 @@ def clear_uploads():
                     shutil.rmtree(file_path)
             except Exception as e:
                 pass  # Optionally, handle/log errors
-    return [], "Uploads folder cleared!"
+    return "Uploads folder cleared!"
 
 def restart_script():
     # Clear uploads before restarting
@@ -44,12 +42,27 @@ def restart_script():
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
+def update_previews(_=None):
+    import mimetypes
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    save_dir = os.path.join(base_dir, "uploads")
+    image_files = []
+    file_names = []
+    if os.path.exists(save_dir):
+        for f in os.listdir(save_dir):
+            full_path = os.path.join(save_dir, f)
+            mime, _ = mimetypes.guess_type(full_path)
+            if mime and mime.startswith("image"):
+                image_files.append(full_path)
+            file_names.append(f)
+    return image_files, "\n".join(f"- {name}" for name in file_names)
+
 # Clean uploads folder on startup
 clear_uploads()
 
 with gr.Blocks() as app:
     file_input, preview_gallery, file_markdown, status = main_tab(
-        upload_files, clear_uploads, restart_script
+        upload_files, clear_uploads, restart_script, update_previews
     )
 
 if __name__ == "__main__":

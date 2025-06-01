@@ -35,4 +35,11 @@ def main_tab(upload_files, clear_uploads, restart_script, update_previews):
             inputs=[],
             outputs=[]
         )
+
+        # --- Set initial preview and file list on app startup ---
+        initial_images, initial_list = update_previews()
+        preview_gallery.value = initial_images
+        file_markdown.value = initial_list
+        # -------------------------------------------------------
+
     return file_input, preview_gallery, file_markdown, status
