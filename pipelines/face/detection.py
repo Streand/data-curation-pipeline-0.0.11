@@ -1,9 +1,12 @@
 import cv2
 import insightface
+from utils.device import get_device 
 
 def detect_faces(image_path):
+    device = get_device()
+    ctx_id = 0 if device == "cuda" else -1
     model = insightface.app.FaceAnalysis()
-    model.prepare(ctx_id=0, det_size=(640, 640))
+    model.prepare(ctx_id=ctx_id, det_size=(640, 640))
     img = cv2.imread(image_path)
     faces = model.get(img)
     for face in faces:
