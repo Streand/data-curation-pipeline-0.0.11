@@ -4,6 +4,14 @@ import shutil
 import gradio as gr
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "front_end"))
 from front_end.UI_main import main_tab
+from front_end.UI_accessories import accessories_tab
+from front_end.UI_body import body_tab
+from front_end.UI_camera import camera_tab
+from front_end.UI_clothing import clothing_tab
+from front_end.UI_face import face_tab
+from front_end.UI_finalize import finalize_tab
+from front_end.UI_nsfw import nsfw_tab
+from front_end.UI_pose  import pose_tab
 
 def upload_files(files):
     import mimetypes
@@ -78,9 +86,15 @@ def update_previews(_=None):
 clear_uploads()
 
 with gr.Blocks() as app:
-    file_input, preview_gallery, status = main_tab(
-        upload_files, clear_uploads, restart_script, update_previews
-    )
+    main_tab(upload_files, clear_uploads, restart_script, update_previews)
+    face_tab()
+    body_tab()
+    pose_tab()
+    camera_tab()
+    clothing_tab()
+    accessories_tab()
+    nsfw_tab()
+    finalize_tab()
 
 if __name__ == "__main__":
     app.launch(inbrowser=True)
