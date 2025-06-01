@@ -24,7 +24,7 @@ ultralytics>=8.0.0
 huggingface-hub>=0.14.0
 
 # UI and visualization
-gradio>=3.20.0
+gradio>=4.0.0
 matplotlib>=3.5.0
 plotly>=5.10.0
 
