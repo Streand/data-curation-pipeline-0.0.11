@@ -61,7 +61,7 @@ def update_previews(_=None):
 clear_uploads()
 
 with gr.Blocks() as app:
-    file_input, preview_gallery, file_markdown, status = main_tab(
+    file_input, preview_gallery, status = main_tab(
         upload_files, clear_uploads, restart_script, update_previews
     )
 
