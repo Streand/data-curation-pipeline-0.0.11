@@ -120,10 +120,13 @@ def select_best_frames(video_path, output_dir, sample_rate=15, num_frames=20):
     # Extract frames at given sample rate
     frames, fps = extract_frames(video_path, output_dir, sample_rate)
     
+    # Get total frames extracted
+    total_frames = len(frames)
+    
     # Score frames
     scored_frames = score_frames_for_quality(frames)
     
     # Select top N frames
     best_frames = scored_frames[:num_frames] if len(scored_frames) > num_frames else scored_frames
     
-    return best_frames, fps
+    return best_frames, fps, total_frames

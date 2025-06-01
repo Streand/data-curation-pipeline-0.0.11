@@ -10,7 +10,7 @@ def process_video(uploads_dir, sample_rate, num_frames):
                   if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
     
     if not video_files:
-        return None, "No video files found in uploads folder."
+        return None, None, "No video files found in uploads folder."
     
     # Create temp folder for frames
     temp_dir = os.path.join(uploads_dir, "video_frames_temp")
@@ -20,6 +20,7 @@ def process_video(uploads_dir, sample_rate, num_frames):
     
     results = []
     gallery_images = []
+    total_frames_processed = 0
     
     # Process each video
     for video_file in video_files:
@@ -29,12 +30,14 @@ def process_video(uploads_dir, sample_rate, num_frames):
         
         try:
             # Select best frames using GPU acceleration
-            best_frames, fps = select_best_frames(
+            best_frames, fps, total_frames = select_best_frames(
                 video_path, 
                 video_temp_dir, 
                 sample_rate=sample_rate,
                 num_frames=num_frames
             )
+            
+            total_frames_processed += total_frames
             
             # Add to gallery for display
             for frame in best_frames:
@@ -51,7 +54,8 @@ def process_video(uploads_dir, sample_rate, num_frames):
             # Add results for this video
             results.append({
                 "video": video_file,
-                "frames_processed": len(best_frames),
+                "frames_processed": total_frames,
+                "frames_selected": len(best_frames),
                 "fps": fps,
                 "best_frames": [
                     {
@@ -69,8 +73,8 @@ def process_video(uploads_dir, sample_rate, num_frames):
                 "error": str(e)
             })
     
-    summary = f"Processed {len(video_files)} videos. Selected {len(gallery_images)} best frames."
-    return gallery_images, {"summary": summary, "results": results}
+    status_text = f"Processed {len(video_files)} videos with {total_frames_processed} total frames. Selected {len(gallery_images)} best frames."
+    return gallery_images, {"summary": status_text, "results": results}, status_text
 
 def video_tab(uploads_dir):
     with gr.Tab("Video Tab"):
@@ -100,5 +104,5 @@ def video_tab(uploads_dir):
         run_btn.click(
             fn=lambda sr, nf: process_video(uploads_dir, sr, nf),
             inputs=[sample_rate, num_frames],
-            outputs=[gallery, results_json]
+            outputs=[gallery, results_json, status]
         )
