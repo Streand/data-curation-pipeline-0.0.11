@@ -6,19 +6,35 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "front_
 from front_end.UI_main import main_tab
 
 def upload_files(files):
+    import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
     os.makedirs(save_dir, exist_ok=True)
     skipped = 0
+    uploaded = 0
+    
     for f in files:
+        # Check file type using mimetypes
+        mime, _ = mimetypes.guess_type(f)
+        # Skip if not an image or video file
+        if not mime or not (mime.startswith("image") or mime.startswith("video")):
+            skipped += 1
+            continue
+            
         dest = os.path.join(save_dir, os.path.basename(f))
         if os.path.exists(dest):
             skipped += 1
             continue
+        
         shutil.copy(f, dest)
-    if skipped > 0:
-        return f"Upload OK. Skipped: {skipped} file(s)"
-    return "Upload OK"
+        uploaded += 1
+        
+    if skipped > 0 and uploaded > 0:
+        return f"Upload OK: {uploaded} file(s). Skipped: {skipped} file(s)."
+    elif skipped > 0 and uploaded == 0:
+        return f"No files uploaded. Skipped: {skipped} unsupported or duplicate file(s)."
+    else:
+        return f"Upload OK: {uploaded} file(s)."
 
 def clear_uploads():
     # Clear the 'uploads' folder by deleting all its contents

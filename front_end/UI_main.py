@@ -54,7 +54,7 @@ def generate_preview_html(file_paths):
                     class="img-thumb" 
                     src="{thumb}" 
                     onclick="document.getElementById('img-overlay-img').src='{thumb}';document.getElementById('img-overlay-img').style.display='block';document.getElementById('img-overlay-vid').style.display='none';document.getElementById('img-overlay-bg').classList.add('active');event.stopPropagation();" 
-                    style="height:120px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;">'''
+                    style="height:250px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;">'''
             elif ext in [".mp4", ".webm", ".ogg"]:
                 mime = "video/mp4" if ext == ".mp4" else ("video/webm" if ext == ".webm" else "video/ogg")
                 vid_b64 = f"data:{mime};base64,{base64.b64encode(file_data).decode('utf-8')}"
@@ -62,7 +62,7 @@ def generate_preview_html(file_paths):
                     class="vid-thumb" 
                     src="{vid_b64}" 
                     onclick="document.getElementById('img-overlay-vid').src='{vid_b64}';document.getElementById('img-overlay-vid').style.display='block';document.getElementById('img-overlay-img').style.display='none';document.getElementById('img-overlay-bg').classList.add('active');event.stopPropagation();" 
-                    style="height:120px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;" 
+                    style="height:250px; width:auto; object-fit:contain; border:1px solid #ccc; border-radius:4px; background:#222;" 
                     muted></video>'''
             else:
                 html += '<div style="width:120px; height:120px; border:1px solid orange; color:#fff; display:flex; align-items:center; justify-content:center;">Unsupported</div>'
