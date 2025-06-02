@@ -1,43 +1,29 @@
-# Install wheel first to prevent legacy setup.py warnings
-wheel
 
-# Core dependencies
-numpy>=1.20.0
-pandas>=1.3.0
-tqdm>=4.60.0
+# UI and visualization
+# gradio>=4.0.0
+gradio #latest stable version
 
-# Image and video processing
-opencv-python>=4.5.0
-ffmpeg-python>=0.2.0
-moviepy>=1.0.0
-pillow>=8.0.0,<10.0.0
+# All Requierments for base insightface 0.7.3
 
-# PyTorch with CUDA 12.4+ (Blackwell/RTX 5080)
+# # PyTorch with CUDA 12.4+ (Blackwell/RTX 5080)
 # Make sure your Python version matches the wheel (cp310 = Python 3.10)
 https://huggingface.co/w-e-w/torch-2.6.0-cu128.nv/resolve/main/torch-2.6.0+cu128.nv-cp310-cp310-win_amd64.whl
 https://huggingface.co/w-e-w/torch-2.6.0-cu128.nv/resolve/main/torchvision-0.20.0a0+cu128.nv-cp310-cp310-win_amd64.whl
 
-# xformers may not have a prebuilt wheel for torch 2.6.0/Blackwell yet.
-# If you need it, try to build from source or check for a compatible wheel.
-# xformers>=0.0.22
+    
+# Main requirements for insightface
+insightface
+scipy
+opencv-python
+requests
+tqdm
+numpy<2.0.0
+onnxruntime-gpu>=1.17.0
 
-# Face and scene analysis
-insightface>=0.6.0
-onnxruntime-gpu>=1.17.0  # May need to check CUDA 12.4+ compatibility
-dlib>=19.22.0
-mediapipe>=0.8.10
-face-recognition>=1.3.0
-deepface>=0.0.75
-scenedetect>=0.6.0
-
-# ML frameworks and models
-tensorflow>=2.8.0
-clip @ git+https://github.com/openai/CLIP.git
-ultralytics>=8.0.0
-huggingface-hub>=0.14.0
-
-# UI and visualization
-gradio>=4.0.0
-streamlit>=1.20.0
-matplotlib>=3.5.0
-plotly>=5.10.0
+# Optional/extra dependencies (for some features)
+Pillow
+matplotlib
+scikit-learn
+scikit-image
+dlib
+onnx
