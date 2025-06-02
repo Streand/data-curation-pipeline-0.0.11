@@ -1,9 +1,9 @@
 import os
 
-# Configure PyTorch for newer GPUs
+# GPU optimization settings
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'
-os.environ['CUDA_MODULE_LOADING'] = 'LAZY'  # Helps with newer architectures
+os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
 
 import sys
 import gradio as gr
@@ -17,10 +17,18 @@ from front_end.UI_clothing import clothing_tab
 from front_end.UI_face import face_tab
 from front_end.UI_finalize import finalize_tab
 from front_end.UI_nsfw import nsfw_tab
-from front_end.UI_pose  import pose_tab
+from front_end.UI_pose import pose_tab
 from front_end.UI_video_stage_1 import video_tab_stage1
 
 def upload_files(files):
+    """Upload media files to the uploads directory.
+    
+    Args:
+        files: List of file paths to upload
+        
+    Returns:
+        str: Status message about the upload operation
+    """
     import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
@@ -29,9 +37,7 @@ def upload_files(files):
     uploaded = 0
     
     for f in files:
-        # Check file type using mimetypes
         mime, _ = mimetypes.guess_type(f)
-        # Skip if not an image or video file
         if not mime or not (mime.startswith("image") or mime.startswith("video")):
             skipped += 1
             continue
@@ -52,7 +58,7 @@ def upload_files(files):
         return f"Upload OK: {uploaded} file(s)."
 
 def clear_uploads():
-    # Clear the 'uploads' folder by deleting all its contents
+    """Remove all files from the uploads directory."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
     if os.path.exists(save_dir):
@@ -63,27 +69,31 @@ def clear_uploads():
                     os.unlink(file_path)
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
-            except Exception as e:
-                pass  # Optionally, handle/log errors
+            except Exception:
+                pass  # Silently ignore errors during cleanup
     return "Uploads folder cleared!"
 
 def restart_script():
-    # Clear uploads before restarting
+    """Restart the application after clearing uploads."""
     clear_uploads()
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
 def update_previews(_=None):
+    """Get list of media files and their names from the uploads folder.
+    
+    Returns:
+        tuple: (list of media file paths, string of file names)
+    """
     import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
-    media_files = []  # Renamed from image_files to better reflect content
+    media_files = []
     file_names = []
     if os.path.exists(save_dir):
         for f in os.listdir(save_dir):
             full_path = os.path.join(save_dir, f)
             mime, _ = mimetypes.guess_type(full_path)
-            # Add both image and video files to the list
             if mime and (mime.startswith("image") or mime.startswith("video")):
                 media_files.append(full_path)
             file_names.append(f)
@@ -107,15 +117,14 @@ with gr.Blocks() as app:
     finalize_tab()
 
 if __name__ == "__main__":
-    # Create the store_images directory if it doesn't exist
+    # Create required directories
     store_images_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "store_images")
     os.makedirs(store_images_dir, exist_ok=True)
     
-    # Create stage directories
     video_stage1_dir = os.path.join(store_images_dir, "video_stage_1")
     os.makedirs(video_stage1_dir, exist_ok=True)
     
-    # Launch with allowed_paths - allowing Gradio to access the store_images directory
+    # Launch the Gradio app with access to the store_images directory
     app.launch(
         inbrowser=True,
         allowed_paths=[store_images_dir]

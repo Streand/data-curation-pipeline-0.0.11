@@ -107,3 +107,24 @@ Try to detect scene changes
 Note: This is slower, so it's optional and best used with longer videos that contain multiple scenes.
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+Batch Size
+    What it does: Processes multiple frames simultaneously instead of one at a time.
+        - Controls how many frames are analyzed in parallel
+        - Higher values make better use of GPU resources
+        - Lower values use less memory
+    Impact:
+        - Increased batch size: Faster processing but higher GPU memory usage
+        - Decreased batch size: Lower memory requirements but slower processing
+    Recommendations:
+        - Low-end GPUs (2-4GB): Use batch size 1-4
+        - Mid-range GPUs (6-8GB): Use batch size 4-8
+        - High-end GPUs (10GB+): Use batch size 8-32
+
+    Motion Threshold
+        What it does: Filters out frames that are too similar based on visual movement.
+            - Higher values (25-50): Only frames with significant differences will be included
+            - Lower values (0-20): More similar frames will be accepted
+        Impact: Helps prevent selecting multiple nearly-identical frames, ensuring better diversity
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
