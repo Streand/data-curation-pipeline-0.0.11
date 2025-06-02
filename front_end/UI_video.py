@@ -92,7 +92,8 @@ def open_folder(folder_path):
     
     try:
         if os.name == 'nt':  # Windows
-            os.startfile(folder_path)
+            # Use subprocess with SW_SHOWMAXIMIZED (3) flag instead of os.startfile
+            subprocess.run(['explorer', '/select,', folder_path], shell=True)
         elif os.name == 'posix':  # macOS/Linux
             if os.path.exists('/usr/bin/open'):  # macOS
                 subprocess.call(['open', folder_path])
