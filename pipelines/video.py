@@ -67,8 +67,8 @@ VIDEO_PRESETS = {
 
 # Step 1: Add configurable thresholds
 # Lower these values for more permissive selection
-FACE_CONFIDENCE_THRESHOLD = 0.85  # Was 0.95
-SHARPNESS_THRESHOLD = 50.0       # Was 100.0
+FACE_CONFIDENCE_THRESHOLD = 0.7  # Lower threshold to catch more potential faces
+SHARPNESS_THRESHOLD = 40.0       # Lower threshold for sharpness
 CLIP_SCORE_THRESHOLD = 0.5        # Minimum CLIP similarity
 
 def extract_frames(video_path, output_dir, sample_rate=1):
@@ -433,6 +433,7 @@ def detect_scene_changes(video_path):
 
 import os
 import torch
+import json
 
 def check_gpu_usage():
     """Check if GPU is being used and how much memory is allocated"""
@@ -457,3 +458,246 @@ def check_gpu_usage():
             print(f"GPU computation test: FAILED - {e}")
     else:
         print("CUDA not available - using CPU")
+
+# Update the score_frames_for_quality function for Stage 1
+def score_frames_for_stage1(frame_paths, weights=None, thresholds=None):
+    """
+    First-stage fast filtering: Uses only OpenCV and InsightFace
+    with permissive thresholds to maximize recall.
+    """
+    device = get_device()
+    results = []
+    
+    # Default weights if not provided - emphasize face detection and sharpness
+    if weights is None:
+        weights = {
+            "face_confidence": 0.6,
+            "sharpness": 0.3,
+            "face_size": 0.1,
+        }
+    
+    # Default thresholds if not provided - permissive
+    if thresholds is None:
+        thresholds = {
+            "face_confidence": FACE_CONFIDENCE_THRESHOLD,
+            "sharpness": SHARPNESS_THRESHOLD
+        }
+    
+    for frame_path in tqdm(frame_paths, desc="Fast analysis"):
+        try:
+            # Load image
+            img = cv2.imread(frame_path)
+            if img is None:
+                raise Exception(f"Could not load image: {frame_path}")
+            
+            # Calculate sharpness (Laplacian variance)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+            
+            # Detect faces (InsightFace)
+            faces = detect_faces(img)
+            
+            # If no faces found, still include but mark as no-face
+            if not faces:
+                results.append({
+                    "path": frame_path,
+                    "score": sharpness / 100,  # Simple score based on sharpness
+                    "sharpness": sharpness,
+                    "face_score": 0,
+                    "face_size": 0,
+                    "faces": 0,
+                    "has_face": False,
+                    "passed_threshold": sharpness >= thresholds["sharpness"]  # Still pass if sharp enough
+                })
+                continue
+            
+            # Find best face (highest confidence or largest)
+            max_face_size = 0
+            max_face_score = 0
+            for face in faces:
+                face_size = face["bbox"][2] * face["bbox"][3]
+                if face_size > max_face_size:
+                    max_face_size = face_size
+                    max_face_score = face["score"]
+            
+            # PERMISSIVE THRESHOLD: Pass if EITHER good face OR good sharpness
+            passed_threshold = (max_face_score >= thresholds["face_confidence"] or 
+                               sharpness >= thresholds["sharpness"])
+            
+            # Calculate overall score (simpler, no CLIP)
+            overall_score = (
+                weights["face_confidence"] * max_face_score +
+                weights["sharpness"] * (sharpness / 100) +
+                weights["face_size"] * (max_face_size / 10000)
+            )
+            
+            results.append({
+                "path": frame_path,
+                "score": overall_score,
+                "sharpness": sharpness,
+                "face_score": max_face_score,
+                "face_size": max_face_size,
+                "faces": len(faces),
+                "has_face": True,
+                "passed_threshold": passed_threshold,
+                "stage": 1  # Mark as stage 1 processed
+            })
+            
+        except Exception as e:
+            results.append({
+                "path": frame_path,
+                "score": 0,
+                "error": str(e),
+                "passed_threshold": False,
+                "stage": 1
+            })
+    
+    # Sort by score (highest first)
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    
+    return results
+
+# Update the select_best_frames function for Stage 1
+def select_frames_stage1(video_path, output_dir, preset="TikTok/Instagram", sample_rate=None, 
+                        num_frames=None, min_frame_distance=30, use_scene_detection=False):
+    """
+    First-stage processing: Fast extraction of potential frames
+    """
+    # Load preset settings
+    preset_config = VIDEO_PRESETS[preset]
+    
+    # Override preset with custom values if provided
+    sample_rate = sample_rate if sample_rate is not None else preset_config["sample_rate"]
+    num_frames = num_frames if num_frames is not None else preset_config["number_of_best_frames"]
+    min_frame_distance = min_frame_distance if min_frame_distance is not None else preset_config["thresholds"]["minimum_frame_distance"]
+    
+    # Weights and thresholds - simplified for stage 1
+    weights = {
+        "face_confidence": 0.6, 
+        "sharpness": 0.3,
+        "face_size": 0.1
+    }
+    
+    thresholds = {
+        "face_confidence": 0.7,  # Permissive
+        "sharpness": 40.0        # Permissive
+    }
+    
+    # Extract frames at given sample rate
+    frames, fps = extract_frames(video_path, output_dir, sample_rate)
+    
+    if not frames:
+        print("No frames were extracted from the video.")
+        return [], fps, 0
+    
+    # Score frames with stage 1 function (fast)
+    scored_frames = score_frames_for_stage1(frames, weights=weights, thresholds=thresholds)
+    
+    # Get passed frames
+    passed_frames = [f for f in scored_frames if f.get("passed_threshold", False)]
+    
+    # FALLBACK: If no frames passed, take top N by score regardless
+    if len(passed_frames) < min(5, num_frames):
+        print(f"Only {len(passed_frames)} frames passed filters, adding more frames...")
+        additional_needed = min(5, num_frames) - len(passed_frames)
+        
+        # Get frames that didn't pass but might be useful
+        failed_frames = [f for f in scored_frames if not f.get("passed_threshold", False)]
+        failed_frames.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        # Add the best of the failed frames
+        for i in range(min(additional_needed, len(failed_frames))):
+            failed_frames[i]["passed_threshold"] = True  # Mark as manually passed
+            passed_frames.append(failed_frames[i])
+    
+    # Apply frame distance to ensure diversity
+    diverse_frames = []
+    selected_indices = []
+    
+    # If scene detection requested and we have sufficient number of frames
+    if use_scene_detection and len(frames) > 100:
+        try:
+            # Only import if needed
+            import scenedetect
+            from scenedetect import detect, ContentDetector
+            
+            # Find scene changes
+            scene_list = detect(video_path, ContentDetector())
+            scene_frames = []
+            for scene in scene_list:
+                # Convert scene boundaries to frame indices
+                start_frame = scene[0].frame_num
+                end_frame = scene[1].frame_num
+                
+                # Find frame closest to scene change
+                for i, frame in enumerate(frames):
+                    # Extract frame number from path
+                    frame_num = int(os.path.basename(frame).split('_')[1].split('.')[0])
+                    if abs(frame_num - start_frame) < 5:
+                        scene_frames.append(i)
+                        break
+            
+            # Boost scores of scene change frames
+            for i in scene_frames:
+                if i < len(scored_frames):
+                    scored_frames[i]["score"] += 0.1  # Small boost
+            
+            # Re-sort after boosting
+            scored_frames.sort(key=lambda x: x.get("score", 0), reverse=True)
+            
+        except Exception as e:
+            print(f"Scene detection failed: {e}")
+    
+    # Select diverse frames based on distance
+    for frame in passed_frames:
+        frame_idx = frames.index(frame["path"])
+        
+        # Check if this frame is sufficiently distant from already selected frames
+        if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
+            diverse_frames.append(frame)
+            selected_indices.append(frame_idx)
+            
+        # Stop if we have enough frames
+        if len(diverse_frames) >= num_frames:
+            break
+    
+    # If we don't have enough diverse frames, add best remaining frames
+    if len(diverse_frames) < num_frames:
+        remaining_frames = [f for f in passed_frames if f not in diverse_frames]
+        remaining_frames.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        for frame in remaining_frames:
+            if frame not in diverse_frames:
+                diverse_frames.append(frame)
+                
+            if len(diverse_frames) >= num_frames:
+                break
+    
+    # Debug info
+    print(f"Stage 1 complete:")
+    print(f"- Total frames extracted: {len(frames)}")
+    print(f"- Frames passing thresholds: {len(passed_frames)}")
+    print(f"- Diverse frames selected: {len(diverse_frames)}")
+    
+    # Save results metadata for later stages
+    metadata_path = os.path.join(output_dir, "stage1_results.json")
+    with open(metadata_path, 'w') as f:
+        json.dump({
+            "video_path": video_path,
+            "fps": fps,
+            "total_frames": len(frames),
+            "passed_frames": len(passed_frames),
+            "selected_frames": [
+                {
+                    "path": f["path"],
+                    "score": f.get("score", 0),
+                    "sharpness": f.get("sharpness", 0),  # Use .get() with default
+                    "face_score": f.get("face_score", 0),
+                    "face_size": f.get("face_size", 0),
+                    "faces": f.get("faces", 0)
+                }
+                for f in diverse_frames
+            ]
+        }, f, indent=2)
+    
+    return diverse_frames, fps, len(frames)
