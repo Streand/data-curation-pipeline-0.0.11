@@ -2,12 +2,128 @@ import gradio as gr
 import os
 import cv2
 import shutil
-from pipelines.video import VIDEO_PRESETS, select_best_frames
+from pipelines.video import VIDEO_PRESETS, select_frames_stage1 as select_best_frames
 import matplotlib.pyplot as plt
 from datetime import datetime
 import subprocess
+import time
 
-def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prompt="a high quality portrait photo, professional headshot", use_scene_detection=True):
+# 1. Add a shared state variable at the top of the file (after imports)
+# This will keep track of whether processing should be interrupted
+STOP_PROCESSING = False
+
+# 2. Add function to handle the stop button click
+def stop_video_processing():
+    """Stop the current video processing"""
+    global STOP_PROCESSING
+    STOP_PROCESSING = True
+    return "Processing will stop after current frame. Please wait..."
+
+# 3. Modify the process_video_stage1 function to check for stop flag
+def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame_distance, use_scene_detection, progress=gr.Progress()):
+    global STOP_PROCESSING
+    STOP_PROCESSING = False  # Reset flag at start
+    
+    from pipelines.video import select_frames_stage1
+    
+    # Start the timer
+    start_time = time.time()
+    
+    status_text = "Processing videos..."
+    results_json_data = {"results": []}
+    gallery_images = []
+    
+    # Check if directory exists and contains videos
+    if not os.path.exists(uploads_dir):
+        return [], {"error": "Upload directory not found"}, "Error: Upload directory not found"
+    
+    # Process each video in uploads directory
+    video_files = [f for f in os.listdir(uploads_dir) if f.endswith((".mp4", ".avi", ".mov", ".mkv"))]
+    
+    if not video_files:
+        return [], {"error": "No video files found"}, "Error: No video files found in upload directory"
+    
+    # Create output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_base = os.path.join(os.path.dirname(uploads_dir), "frame_output")
+    
+    for video_file in video_files:
+        try:
+            video_path = os.path.join(uploads_dir, video_file)
+            video_name = os.path.splitext(video_file)[0]
+            output_dir = os.path.join(output_base, f"{video_name}_{timestamp}")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Update status
+            progress(0, desc=f"Processing {video_file}...")
+            
+            # Run stage 1 processing with progress reporting
+            result_frames, fps, total_frames, storage_path, best_frames_path = select_frames_stage1(
+                video_path, 
+                preset=preset,
+                sample_rate=sample_rate, 
+                num_frames=num_frames, 
+                min_frame_distance=min_frame_distance,
+                use_scene_detection=use_scene_detection,
+                progress=progress,
+                check_stop=lambda: STOP_PROCESSING  # Pass a function to check stop status
+            )
+            
+            # Update the video result to include storage path
+            video_result = {
+                "video": video_file,
+                "output_dir": storage_path,  # This is now the permanent storage path
+                "fps": fps,
+                "total_frames": total_frames,
+                "best_frames": result_frames
+            }
+            
+            results_json_data["results"].append(video_result)
+            
+            # Add images to gallery
+            for frame in result_frames:
+                score = round(frame.get("score", 0), 3)
+                faces = frame.get("faces", 0)
+                gallery_images.append((frame["path"], f"Score: {score}, Faces: {faces}"))
+            
+            status_text = f"Successfully processed {len(video_files)} videos, extracted {len(gallery_images)} candidate frames"
+            
+        except Exception as e:
+            print(f"Error processing {video_file}: {e}")
+            status_text = f"Error processing {video_file}: {str(e)}"
+    
+    # Create the visualization
+    fig = create_frame_plot(results_json_data)
+    
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    
+    # Format time as min:sec
+    time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds} seconds"
+    
+    # Add processing time to status
+    status_text += f"\nTotal processing time: {time_str}"
+    
+    # Add storage location to status
+    status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
+    
+    # Add a note if processing was stopped early
+    if STOP_PROCESSING:
+        status_text = f"Processing stopped early. Showing best {len(gallery_images)} frames found so far."
+    
+    # Update the return statement in process_video_stage1:
+    return (
+        gallery_images, 
+        results_json_data, 
+        status_text, 
+        fig, 
+        gr.update(value=best_frames_path)  # only update store_path
+    )
+
+# 1. Fix the process_video function definition (remove CLIP parameters)
+def process_video(uploads_dir, sample_rate, num_frames, use_scene_detection=False):
     # Get all video files from uploads
     video_files = [f for f in os.listdir(uploads_dir) 
                   if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
@@ -32,14 +148,12 @@ def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prom
         os.makedirs(video_temp_dir, exist_ok=True)
         
         try:
-            # Select best frames using GPU acceleration
+            # Select best frames using GPU acceleration (removed CLIP parameters)
             best_frames, fps, total_frames = select_best_frames(
                 video_path, 
                 video_temp_dir, 
                 sample_rate=sample_rate,
                 num_frames=num_frames,
-                use_clip=use_clip,
-                clip_prompt=clip_prompt,
                 use_scene_detection=use_scene_detection
             )
             
@@ -115,6 +229,58 @@ def open_all_frames_folder():
     all_frames_dir = os.path.join(get_app_root(), "store_images", "video_stage_1")
     return open_folder(all_frames_dir)
 
+def create_frame_plot(results_data):
+    if not results_data or "results" not in results_data:
+        return None
+        
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    fig = plt.figure(figsize=(10, 6))
+    
+    # Extract frame positions and scores
+    positions = []
+    scores = []
+    passed = []
+    
+    for video_result in results_data.get("results", []):
+        for frame in video_result.get("best_frames", []):
+            frame_path = frame.get("path", "")
+            # Extract frame number from filename (assuming format frame_XXXX.jpg)
+            try:
+                frame_num = int(os.path.basename(frame_path).split('_')[1].split('.')[0])
+                positions.append(frame_num)
+                scores.append(frame.get("score", 0))
+                passed.append(frame.get("passed_threshold", False))
+            except:
+                continue
+    
+    if not positions:
+        return None
+        
+    # Sort by position
+    sorted_data = sorted(zip(positions, scores, passed))
+    positions = [d[0] for d in sorted_data]
+    scores = [d[1] for d in sorted_data]
+    passed = [d[2] for d in sorted_data]
+    
+    # Plot frame distribution
+    plt.subplot(2, 1, 1)
+    plt.scatter(positions, [1]*len(positions), c=['green' if p else 'red' for p in passed], 
+              alpha=0.7, s=50)
+    plt.ylabel("Selected")
+    plt.title("Frame Distribution")
+    
+    # Plot scores
+    plt.subplot(2, 1, 2)
+    plt.bar(range(len(scores)), scores, color=['green' if p else 'red' for p in passed])
+    plt.xlabel("Frame Index")
+    plt.ylabel("Quality Score")
+    plt.title("Frame Scores")
+    
+    plt.tight_layout()
+    return fig
+
 def video_tab(uploads_dir):
     with gr.Tab("Video Processing - Stage 1"):
         gr.Markdown("""
@@ -132,17 +298,17 @@ def video_tab(uploads_dir):
         
         with gr.Row():
             sample_rate = gr.Slider(
-                minimum=1, maximum=60, value=15, step=1, 
+                minimum=1, maximum=60, value=1, step=1,  # Change default from 15 to 1
                 label="Sample Rate (frames to skip)"
             )
             num_frames = gr.Slider(
-                minimum=5, maximum=100, value=20, step=5,
+                minimum=5, maximum=100, value=8, step=5,  # Change default from 20 to 8
                 label="Maximum Number of Frames to Extract"
             )
             
         with gr.Row():
             min_frame_distance = gr.Slider(
-                minimum=5, maximum=60, value=30, step=5,
+                minimum=5, maximum=60, value=15, step=5,  # Change default from 30 to 15
                 label="Minimum Frame Distance (for diversity)"
             )
             use_scene_detection = gr.Checkbox(
@@ -160,10 +326,11 @@ def video_tab(uploads_dir):
         # Status display
         status = gr.Markdown("Click 'Process Videos' to extract potential frames")
         
-        # Button row - put all three buttons in the same row
+        # Button row - put all buttons in the same row
         with gr.Row():
             all_frames_btn = gr.Button("Open All Frames Folder", variant="secondary", scale=1)
             open_btn = gr.Button("Open Best Frames Folder", variant="secondary", scale=1)
+            stop_btn = gr.Button("Stop", variant="stop", scale=1)  # Add the stop button
             run_btn = gr.Button("Process Videos", variant="primary", scale=2)
         
         # Results
@@ -202,62 +369,15 @@ def video_tab(uploads_dir):
             outputs=[sample_rate, num_frames, min_frame_distance]
         )
         
-        # Create distribution visualization
-        def create_frame_plot(results_data):
-            if not results_data or "results" not in results_data:
-                return None
-                
-            import matplotlib.pyplot as plt
-            import numpy as np
-            
-            fig = plt.figure(figsize=(10, 6))
-            
-            # Extract frame positions and scores
-            positions = []
-            scores = []
-            passed = []
-            
-            for video_result in results_data.get("results", []):
-                for frame in video_result.get("best_frames", []):
-                    frame_path = frame.get("path", "")
-                    # Extract frame number from filename (assuming format frame_XXXX.jpg)
-                    try:
-                        frame_num = int(os.path.basename(frame_path).split('_')[1].split('.')[0])
-                        positions.append(frame_num)
-                        scores.append(frame.get("score", 0))
-                        passed.append(frame.get("passed_threshold", False))
-                    except:
-                        continue
-            
-            if not positions:
-                return None
-                
-            # Sort by position
-            sorted_data = sorted(zip(positions, scores, passed))
-            positions = [d[0] for d in sorted_data]
-            scores = [d[1] for d in sorted_data]
-            passed = [d[2] for d in sorted_data]
-            
-            # Plot frame distribution
-            plt.subplot(2, 1, 1)
-            plt.scatter(positions, [1]*len(positions), c=['green' if p else 'red' for p in passed], 
-                      alpha=0.7, s=50)
-            plt.ylabel("Selected")
-            plt.title("Frame Distribution")
-            
-            # Plot scores
-            plt.subplot(2, 1, 2)
-            plt.bar(range(len(scores)), scores, color=['green' if p else 'red' for p in passed])
-            plt.xlabel("Frame Index")
-            plt.ylabel("Quality Score")
-            plt.title("Frame Scores")
-            
-            plt.tight_layout()
-            return fig
-        
         # Process video function
         def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame_distance, use_scene_detection, progress=gr.Progress()):
+            global STOP_PROCESSING
+            STOP_PROCESSING = False  # Reset flag at start
+            
             from pipelines.video import select_frames_stage1
+            
+            # Start the timer
+            start_time = time.time()
             
             status_text = "Processing videos..."
             results_json_data = {"results": []}
@@ -295,7 +415,8 @@ def video_tab(uploads_dir):
                         num_frames=num_frames, 
                         min_frame_distance=min_frame_distance,
                         use_scene_detection=use_scene_detection,
-                        progress=progress
+                        progress=progress,
+                        check_stop=lambda: STOP_PROCESSING  # Pass a function to check stop status
                     )
                     
                     # Update the video result to include storage path
@@ -324,9 +445,24 @@ def video_tab(uploads_dir):
             # Create the visualization
             fig = create_frame_plot(results_json_data)
             
+            # Calculate elapsed time
+            elapsed_time = time.time() - start_time
+            minutes = int(elapsed_time // 60)
+            seconds = int(elapsed_time % 60)
+            
+            # Format time as min:sec
+            time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds} seconds"
+            
+            # Add processing time to status
+            status_text += f"\nTotal processing time: {time_str}"
+            
             # Add storage location to status
             status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
-    
+            
+            # Add a note if processing was stopped early
+            if STOP_PROCESSING:
+                status_text = f"Processing stopped early. Showing best {len(gallery_images)} frames found so far."
+            
             # Update the return statement in process_video_stage1:
             return (
                 gallery_images, 
@@ -356,6 +492,13 @@ def video_tab(uploads_dir):
         # Add the click handler for the all frames button
         all_frames_btn.click(
             fn=open_all_frames_folder,
+            inputs=[],
+            outputs=[status]
+        )
+        
+        # Connect the stop button to the stop_video_processing function
+        stop_btn.click(
+            fn=stop_video_processing,
             inputs=[],
             outputs=[status]
         )
