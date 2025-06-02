@@ -2,9 +2,10 @@ import cv2
 import numpy as np
 import insightface
 import torch
+import time
 from utils.device import get_device
 
-# Initialize model only once (making it global)
+
 _face_model = None
 
 def get_face_model():
@@ -13,29 +14,38 @@ def get_face_model():
     if _face_model is None:
         device = get_device()
         ctx_id = 0 if device == "cuda" else -1
-        _face_model = insightface.app.FaceAnalysis()
-        # Increase detection size for better accuracy
+        
+
+        _face_model = insightface.app.FaceAnalysis(providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] 
+                                                  if device == "cuda" else ['CPUExecutionProvider'])
+        
+
         _face_model.prepare(ctx_id=ctx_id, det_size=(640, 640))
-        # Force CUDA synchronization if using GPU
+        
+
         if torch.cuda.is_available():
             torch.cuda.synchronize()
             print(f"Face detection model initialized on {device}")
-            print(f"CUDA memory used: {torch.cuda.memory_allocated() / (1024**2):.1f} MB")
+            mem_before = torch.cuda.memory_allocated() / (1024**2)
+            print(f"CUDA memory used: {mem_before:.1f} MB")
+            
+
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            _ = _face_model.get(dummy_img)
+            torch.cuda.synchronize()
+            
+            mem_after = torch.cuda.memory_allocated() / (1024**2)
+            print(f"CUDA memory used after warmup: {mem_after:.1f} MB")
+            print(f"Model memory footprint: {mem_after - mem_before:.1f} MB")
+    
     return _face_model
 
 def detect_faces(image):
-    """Detect faces in an image.
-    
-    Args:
-        image: Either a path to an image or a numpy array containing the image
-    
-    Returns:
-        List of face detections, each with bbox and confidence score
-    """
-    # Get the model (initializes if needed)
+    """Detect faces in an image."""
+
     model = get_face_model()
     
-    # Handle both image path and image array
+
     if isinstance(image, str):
         img = cv2.imread(image)
         if img is None:
@@ -43,16 +53,25 @@ def detect_faces(image):
     else:
         img = image
     
-    # Run face detection
+
     try:
-        # Force CUDA synchronization before detection if using GPU
+
         if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            mem_before = torch.cuda.memory_allocated() / (1024**2)
+            
+
+            start_time = time.time()
+            faces = model.get(img)
+            torch.cuda.synchronize()
+            
+            end_time = time.time()
+            mem_after = torch.cuda.memory_allocated() / (1024**2)
+            print(f"Detection took {(end_time-start_time)*1000:.1f}ms, GPU memory delta: {mem_after-mem_before:.1f} MB")
+        else:
+            faces = model.get(img)
         
-        # Detect faces
-        faces = model.get(img)
-        
-        # Convert to simple dict format
+
         return [{"bbox": face.bbox.tolist(), "score": face.det_score} for face in faces]
     except Exception as e:
         print(f"Error in face detection: {e}")

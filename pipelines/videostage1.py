@@ -474,6 +474,10 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
             failed_frames[i]["passed_threshold"] = True
             passed_frames.append(failed_frames[i])
     
+    if len(frames) == 0 or len(passed_frames) == 0:
+        print("No frames were extracted or passed thresholds.")
+        return [], fps, 0, None, None
+
     diverse_frames = []
     selected_indices = []
     
@@ -481,14 +485,19 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
         print("Notice: Scene detection is disabled in Stage 1 for performance")
     
     for frame in passed_frames:
-        frame_idx = frames.index(frame["path"])
-        
-        if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
-            diverse_frames.append(frame)
-            selected_indices.append(frame_idx)
+        try:
+            frame_idx = frames.index(frame["path"])
             
-        if len(diverse_frames) >= num_frames:
-            break
+            if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
+                diverse_frames.append(frame)
+                selected_indices.append(frame_idx)
+                
+            if len(diverse_frames) >= num_frames:
+                break
+        except ValueError as e:
+            # Path not found in frames list
+            print(f"Warning: Frame path not found in frames list: {frame['path']}")
+            continue
     
     if len(diverse_frames) < num_frames:
         remaining_frames = [f for f in passed_frames if f not in diverse_frames]
