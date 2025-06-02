@@ -5,7 +5,7 @@ import torch
 import time
 import os
 from utils.device import get_device
-from utils.force_gpu import force_gpu_initialization
+
 
 _face_model = None
 _gpu_initialized = False
@@ -17,7 +17,7 @@ def get_face_model():
     if _face_model is None:
         # First try to initialize GPU properly
         if not _gpu_initialized and torch.cuda.is_available():
-            _gpu_initialized = force_gpu_initialization()
+            _gpu_initialized()
         
         device = get_device()
         ctx_id = 0 if device == "cuda" else -1
