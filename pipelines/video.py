@@ -9,6 +9,7 @@ import clip
 from PIL import Image
 from scenedetect import SceneManager, open_video
 from scenedetect.detectors import ContentDetector
+from datetime import datetime
 
 # Video selection presets
 VIDEO_PRESETS = {
@@ -459,8 +460,8 @@ def check_gpu_usage():
     else:
         print("CUDA not available - using CPU")
 
-# Update the score_frames_for_quality function for Stage 1
-def score_frames_for_stage1(frame_paths, weights=None, thresholds=None):
+# Modify score_frames_for_stage1 to report progress to the UI
+def score_frames_for_stage1(frame_paths, weights=None, thresholds=None, progress=None):
     """
     First-stage fast filtering: Uses only OpenCV and InsightFace
     with permissive thresholds to maximize recall.
@@ -483,8 +484,16 @@ def score_frames_for_stage1(frame_paths, weights=None, thresholds=None):
             "sharpness": SHARPNESS_THRESHOLD
         }
     
-    for frame_path in tqdm(frame_paths, desc="Fast analysis"):
+    # Use progress reporting if provided, otherwise fallback to tqdm
+    total_frames = len(frame_paths)
+    
+    # Process each frame with progress reporting
+    for i, frame_path in enumerate(frame_paths):
         try:
+            # Report progress either to Gradio UI or tqdm
+            if progress is not None:
+                progress(i/total_frames, f"Fast analysis: {i}/{total_frames} frames")
+            
             # Load image
             img = cv2.imread(frame_path)
             if img is None:
@@ -557,12 +566,38 @@ def score_frames_for_stage1(frame_paths, weights=None, thresholds=None):
     
     return results
 
-# Update the select_best_frames function for Stage 1
-def select_frames_stage1(video_path, output_dir, preset="TikTok/Instagram", sample_rate=None, 
-                        num_frames=None, min_frame_distance=30, use_scene_detection=False):
+# Add this helper function near the top of your file
+def get_app_root():
+    """Get the application root directory in a portable way"""
+    # This assumes this file is in pipelines/video.py
+    current_file = os.path.abspath(__file__)  # Get the full path of the current script
+    pipelines_dir = os.path.dirname(current_file)  # pipelines directory
+    app_root = os.path.dirname(pipelines_dir)  # app root directory
+    return app_root
+
+# Then modify select_frames_stage1 function:
+def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram", 
+                       sample_rate=None, num_frames=None, min_frame_distance=30, 
+                       use_scene_detection=False, progress=None):
     """
     First-stage processing: Fast extraction of potential frames
     """
+    # Get app root directory
+    app_root = get_app_root()
+    
+    # Set up proper storage directory relative to the app root
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create storage directory under app root
+    storage_dir = os.path.join(app_root, "store_images", "video_stage_1", f"{video_name}_{timestamp}")
+    
+    # Create the directory
+    os.makedirs(storage_dir, exist_ok=True)
+    
+    # Use storage_dir as our output directory
+    output_dir = storage_dir
+    
     # Load preset settings
     preset_config = VIDEO_PRESETS[preset]
     
@@ -591,7 +626,7 @@ def select_frames_stage1(video_path, output_dir, preset="TikTok/Instagram", samp
         return [], fps, 0
     
     # Score frames with stage 1 function (fast)
-    scored_frames = score_frames_for_stage1(frames, weights=weights, thresholds=thresholds)
+    scored_frames = score_frames_for_stage1(frames, weights=weights, thresholds=thresholds, progress=progress)
     
     # Get passed frames
     passed_frames = [f for f in scored_frames if f.get("passed_threshold", False)]
@@ -700,4 +735,45 @@ def select_frames_stage1(video_path, output_dir, preset="TikTok/Instagram", samp
             ]
         }, f, indent=2)
     
-    return diverse_frames, fps, len(frames)
+    # Copy best frames to a separate directory
+    best_frames_dir = os.path.join(
+        app_root, 
+        "store_images", 
+        "video_stage_1_best", 
+        f"{video_name}_{timestamp}"
+    )
+    os.makedirs(best_frames_dir, exist_ok=True)
+
+    # Copy each best frame to the new directory
+    for frame in diverse_frames:
+        try:
+            src_path = frame["path"]
+            filename = os.path.basename(src_path)
+            # Add score to filename for easy sorting
+            score_str = f"{frame.get('score', 0):.3f}".replace(".", "_")
+            new_filename = f"score_{score_str}_{filename}"
+            dst_path = os.path.join(best_frames_dir, new_filename)
+            
+            # Copy the file
+            import shutil
+            shutil.copy2(src_path, dst_path)
+            
+            # Update the path in the frame data to point to the new location
+            # This ensures the UI shows the best frames
+            frame["best_path"] = dst_path
+        except Exception as e:
+            print(f"Error copying best frame: {e}")
+
+    # Add best frames directory to metadata
+    with open(os.path.join(best_frames_dir, "best_frames_info.json"), 'w') as f:
+        json.dump({
+            "video_path": video_path,
+            "fps": fps, 
+            "total_frames": len(frames),
+            "best_frames": diverse_frames
+        }, f, indent=2)
+
+    print(f"Best {len(diverse_frames)} frames copied to: {best_frames_dir}")
+
+    # Return both directories in the results
+    return diverse_frames, fps, len(frames), storage_dir, best_frames_dir

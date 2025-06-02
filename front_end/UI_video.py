@@ -5,6 +5,7 @@ import shutil
 from pipelines.video import VIDEO_PRESETS, select_best_frames
 import matplotlib.pyplot as plt
 from datetime import datetime
+import subprocess
 
 def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prompt="a high quality portrait photo, professional headshot", use_scene_detection=True):
     # Get all video files from uploads
@@ -81,6 +82,38 @@ def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prom
     status_text = f"Processed {len(video_files)} videos with {total_frames_processed} total frames. Selected {len(gallery_images)} best frames."
     return gallery_images, {"summary": status_text, "results": results}, status_text
 
+def open_folder(folder_path):
+    """Open the specified folder in the file explorer"""
+    if not folder_path:
+        return "No folder specified"
+    
+    if not os.path.exists(folder_path):
+        return f"Folder not found: {folder_path}"
+    
+    try:
+        if os.name == 'nt':  # Windows
+            os.startfile(folder_path)
+        elif os.name == 'posix':  # macOS/Linux
+            if os.path.exists('/usr/bin/open'):  # macOS
+                subprocess.call(['open', folder_path])
+            else:  # Linux
+                subprocess.call(['xdg-open', folder_path])
+        return f"Opened folder: {folder_path}"
+    except Exception as e:
+        return f"Error opening folder: {str(e)}"
+
+def get_app_root():
+    """Get the application root directory"""
+    current_file = os.path.abspath(__file__)
+    front_end_dir = os.path.dirname(current_file)
+    app_root = os.path.dirname(front_end_dir)
+    return app_root
+
+def open_all_frames_folder():
+    """Open the all frames folder at the known location"""
+    all_frames_dir = os.path.join(get_app_root(), "store_images", "video_stage_1")
+    return open_folder(all_frames_dir)
+
 def video_tab(uploads_dir):
     with gr.Tab("Video Processing - Stage 1"):
         gr.Markdown("""
@@ -116,11 +149,21 @@ def video_tab(uploads_dir):
                 value=False
             )
         
+        # Storage location display
+        store_path = gr.Textbox(
+            label="Storage Location", 
+            value=os.path.join(os.path.dirname(uploads_dir), "store_images", "video_stage_1"),
+            interactive=False
+        )
+        
         # Status display
         status = gr.Markdown("Click 'Process Videos' to extract potential frames")
         
-        # Run button
-        run_btn = gr.Button("Process Videos", variant="primary")
+        # Button row - put all three buttons in the same row
+        with gr.Row():
+            all_frames_btn = gr.Button("Open All Frames Folder", variant="secondary", scale=1)
+            open_btn = gr.Button("Open Best Frames Folder", variant="secondary", scale=1)
+            run_btn = gr.Button("Process Videos", variant="primary", scale=2)
         
         # Results
         gallery = gr.Gallery(label="Selected Candidate Frames", show_label=True, columns=4, height=600)
@@ -212,7 +255,7 @@ def video_tab(uploads_dir):
             return fig
         
         # Process video function
-        def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame_distance, use_scene_detection):
+        def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame_distance, use_scene_detection, progress=gr.Progress()):
             from pipelines.video import select_frames_stage1
             
             status_text = "Processing videos..."
@@ -240,21 +283,24 @@ def video_tab(uploads_dir):
                     output_dir = os.path.join(output_base, f"{video_name}_{timestamp}")
                     os.makedirs(output_dir, exist_ok=True)
                     
-                    # Run stage 1 processing
-                    result_frames, fps, total_frames = select_frames_stage1(
+                    # Update status
+                    progress(0, desc=f"Processing {video_file}...")
+                    
+                    # Run stage 1 processing with progress reporting
+                    result_frames, fps, total_frames, storage_path, best_frames_path = select_frames_stage1(
                         video_path, 
-                        output_dir, 
                         preset=preset,
                         sample_rate=sample_rate, 
                         num_frames=num_frames, 
                         min_frame_distance=min_frame_distance,
-                        use_scene_detection=use_scene_detection
+                        use_scene_detection=use_scene_detection,
+                        progress=progress
                     )
                     
-                    # Collect results
+                    # Update the video result to include storage path
                     video_result = {
                         "video": video_file,
-                        "output_dir": output_dir,
+                        "output_dir": storage_path,  # This is now the permanent storage path
                         "fps": fps,
                         "total_frames": total_frames,
                         "best_frames": result_frames
@@ -277,14 +323,38 @@ def video_tab(uploads_dir):
             # Create the visualization
             fig = create_frame_plot(results_json_data)
             
-            return gallery_images, results_json_data, status_text, fig
+            # Add storage location to status
+            status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
+    
+            # Update the return statement in process_video_stage1:
+            return (
+                gallery_images, 
+                results_json_data, 
+                status_text, 
+                fig, 
+                gr.update(value=best_frames_path)  # only update store_path
+            )
         
-        # Run video processing when button is clicked
+        # Update the run_btn.click outputs:
         run_btn.click(
             fn=process_video_stage1,
             inputs=[
                 gr.State(uploads_dir), content_preset, sample_rate, num_frames,
                 min_frame_distance, use_scene_detection
             ],
-            outputs=[gallery, results_json, status, dist_chart]
+            outputs=[gallery, results_json, status, dist_chart, store_path]
+        )
+        
+        # Add the click handler for the open folder button
+        open_btn.click(
+            fn=open_folder,
+            inputs=[store_path],
+            outputs=[status]
+        )
+        
+        # Add the click handler for the all frames button
+        all_frames_btn.click(
+            fn=open_all_frames_folder,
+            inputs=[],
+            outputs=[status]
         )

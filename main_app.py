@@ -107,4 +107,16 @@ with gr.Blocks() as app:
     finalize_tab()
 
 if __name__ == "__main__":
-    app.launch(inbrowser=True)
+    # Create the store_images directory if it doesn't exist
+    store_images_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "store_images")
+    os.makedirs(store_images_dir, exist_ok=True)
+    
+    # Create stage directories
+    video_stage1_dir = os.path.join(store_images_dir, "video_stage_1")
+    os.makedirs(video_stage1_dir, exist_ok=True)
+    
+    # Launch with allowed_paths - allowing Gradio to access the store_images directory
+    app.launch(
+        inbrowser=True,
+        allowed_paths=[store_images_dir]
+    )
