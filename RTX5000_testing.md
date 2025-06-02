@@ -17,7 +17,7 @@ RTX 5000 testing, Blackwell arcetectur
 
 testing file: 
     test_onnxruntime-gpu.py
-    test_insightface.py
+
 
 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,9 @@ main requirements for insightface (especially for insightface>=0.6.0
     ✅  opencv-python
     ✅  requests
     ✅  tqdm
+
+    Testing requirements
+    ✅   CV2
 
     Optional/extra dependencies (for some features)
         mxnet (for legacy models, rarely needed in recent versions)
@@ -71,6 +74,8 @@ print(torch.cuda.get_device_name(0))
     └── NVIDIA GeForce RTX 5080
 
 All main requirements for insightface are installed in venv
-
+    testing file:
+        test_insightface.py
+            └──requierments: ok
 
 
