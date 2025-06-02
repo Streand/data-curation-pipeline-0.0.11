@@ -2,7 +2,7 @@ import gradio as gr
 import os
 import cv2
 import shutil
-from pipelines.video import VIDEO_PRESETS, select_frames_stage1 as select_best_frames
+from pipelines.videostage1 import VIDEO_PRESETS, select_frames_stage1 as select_best_frames
 import matplotlib.pyplot as plt
 from datetime import datetime
 import subprocess
@@ -24,7 +24,7 @@ def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame
     global STOP_PROCESSING
     STOP_PROCESSING = False  # Reset flag at start
     
-    from pipelines.video import select_frames_stage1
+    from pipelines.videostage1 import select_frames_stage1
     
     # Start the timer
     start_time = time.time()
@@ -32,6 +32,10 @@ def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame
     status_text = "Processing videos..."
     results_json_data = {"results": []}
     gallery_images = []
+    
+    # Initialize output paths to avoid UnboundLocalError
+    storage_path = None
+    best_frames_path = None
     
     # Check if directory exists and contains videos
     if not os.path.exists(uploads_dir):
@@ -66,9 +70,15 @@ def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame
                 min_frame_distance=min_frame_distance,
                 use_scene_detection=use_scene_detection,
                 progress=progress,
-                check_stop=lambda: STOP_PROCESSING  # Pass a function to check stop status
+                check_stop=lambda: STOP_PROCESSING,
+                batch_size=8,  # Default batch size
+                motion_threshold=25  # Default motion threshold
             )
             
+            # Add error handling for None return values
+            if not result_frames or best_frames_path is None:
+                raise Exception(f"No valid frames could be extracted from {video_file}")
+                
             # Update the video result to include storage path
             video_result = {
                 "video": video_file,
@@ -91,6 +101,9 @@ def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame
         except Exception as e:
             print(f"Error processing {video_file}: {e}")
             status_text = f"Error processing {video_file}: {str(e)}"
+            # Initialize paths to default values if processing failed
+            storage_path = os.path.join(get_app_root(), "store_images", "video_stage_1")
+            best_frames_path = os.path.join(get_app_root(), "store_images", "video_stage_1_best")
     
     # Create the visualization
     fig = create_frame_plot(results_json_data)
@@ -107,20 +120,13 @@ def process_video_stage1(uploads_dir, preset, sample_rate, num_frames, min_frame
     status_text += f"\nTotal processing time: {time_str}"
     
     # Add storage location to status
-    status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
+    if 'storage_path' in locals() and storage_path:
+        status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
     
     # Add a note if processing was stopped early
     if STOP_PROCESSING:
         status_text = f"Processing stopped early. Showing best {len(gallery_images)} frames found so far."
     
-    # Update the return statement in process_video_stage1:
-    return (
-        gallery_images, 
-        results_json_data, 
-        status_text, 
-        fig, 
-        gr.update(value=best_frames_path)  # only update store_path
-    )
 
 # 1. Fix the process_video function definition (remove CLIP parameters)
 def process_video(uploads_dir, sample_rate, num_frames, use_scene_detection=False):
@@ -281,7 +287,7 @@ def create_frame_plot(results_data):
     plt.tight_layout()
     return fig
 
-def video_tab(uploads_dir):
+def video_tab_stage1(uploads_dir):
     with gr.Tab("Video Processing - Stage 1"):
         gr.Markdown("""
         ## Stage 1: Fast Frame Extraction
@@ -314,6 +320,17 @@ def video_tab(uploads_dir):
             use_scene_detection = gr.Checkbox(
                 label="Try to detect scene changes (optional, may be slower)", 
                 value=False
+            )
+        
+        # Add this to your video_tab function:
+        with gr.Row():
+            batch_size = gr.Slider(
+                minimum=1, maximum=32, value=8, step=1,
+                label="Batch Size (higher uses more GPU memory)"
+            )
+            motion_threshold = gr.Slider(
+                minimum=0, maximum=50, value=25, step=5,
+                label="Motion Threshold (higher = fewer similar frames)"
             )
         
         # Storage location display
@@ -374,7 +391,7 @@ def video_tab(uploads_dir):
             global STOP_PROCESSING
             STOP_PROCESSING = False  # Reset flag at start
             
-            from pipelines.video import select_frames_stage1
+            from pipelines.videostage1 import select_frames_stage1
             
             # Start the timer
             start_time = time.time()
@@ -382,6 +399,10 @@ def video_tab(uploads_dir):
             status_text = "Processing videos..."
             results_json_data = {"results": []}
             gallery_images = []
+            
+            # Initialize output paths to avoid UnboundLocalError
+            storage_path = None
+            best_frames_path = None
             
             # Check if directory exists and contains videos
             if not os.path.exists(uploads_dir):
@@ -419,6 +440,10 @@ def video_tab(uploads_dir):
                         check_stop=lambda: STOP_PROCESSING  # Pass a function to check stop status
                     )
                     
+                    # Add error handling for None return values
+                    if not result_frames or best_frames_path is None:
+                        raise Exception(f"No valid frames could be extracted from {video_file}")
+                        
                     # Update the video result to include storage path
                     video_result = {
                         "video": video_file,
@@ -441,6 +466,9 @@ def video_tab(uploads_dir):
                 except Exception as e:
                     print(f"Error processing {video_file}: {e}")
                     status_text = f"Error processing {video_file}: {str(e)}"
+                    # Initialize paths to default values if processing failed
+                    storage_path = os.path.join(get_app_root(), "store_images", "video_stage_1")
+                    best_frames_path = os.path.join(get_app_root(), "store_images", "video_stage_1_best")
             
             # Create the visualization
             fig = create_frame_plot(results_json_data)
@@ -457,7 +485,8 @@ def video_tab(uploads_dir):
             status_text += f"\nTotal processing time: {time_str}"
             
             # Add storage location to status
-            status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
+            if 'storage_path' in locals() and storage_path:
+                status_text += f"\nFrames saved to: {os.path.dirname(os.path.dirname(storage_path))}"
             
             # Add a note if processing was stopped early
             if STOP_PROCESSING:
@@ -469,7 +498,7 @@ def video_tab(uploads_dir):
                 results_json_data, 
                 status_text, 
                 fig, 
-                gr.update(value=best_frames_path)  # only update store_path
+                gr.update(value=best_frames_path if best_frames_path else "")  # Handle None value
             )
         
         # Update the run_btn.click outputs:

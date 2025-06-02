@@ -8,6 +8,8 @@ from pipelines.face.detection import detect_faces
 from datetime import datetime
 import json
 import shutil
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Video selection presets
 VIDEO_PRESETS = {
@@ -99,6 +101,67 @@ def extract_frames(video_path, output_dir, sample_rate=1):
             pbar.update(1)
     
     video.release()
+    return saved_frames, fps
+
+# Replace the current extract_frames_optimized with this safer version:
+def extract_frames_optimized(video_path, output_dir, sample_rate=1, progress=None, check_stop=None):
+    """Thread-safe frame extraction"""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Get video properties once
+    video = cv2.VideoCapture(video_path)
+    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_interval = int(sample_rate)
+    video.release()  # Release the video object
+    
+    # Define a thread-safe function that opens its own video connection
+    def process_frame(frame_idx):
+        if check_stop and check_stop():
+            return None
+            
+        # Create a new VideoCapture object for each thread
+        thread_video = cv2.VideoCapture(video_path)
+        if not thread_video.isOpened():
+            return None
+            
+        # Seek to the specific frame
+        thread_video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        success, frame = thread_video.read()
+        thread_video.release()  # Close the video immediately
+        
+        if not success:
+            return None
+            
+        # Save the frame
+        frame_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
+        cv2.imwrite(frame_path, frame)
+        return frame_path
+    
+    # Calculate which frames to process
+    frames_to_process = list(range(0, frame_count, frame_interval))
+    
+    # Use a maximum of 4 workers to avoid overwhelming the system
+    max_workers = min(os.cpu_count() or 4, 4)  # Limit to at most 4 threads
+    
+    # Process frames in parallel
+    saved_frames = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(process_frame, idx) for idx in frames_to_process]
+        
+        # Process as they complete
+        for i, future in enumerate(as_completed(futures)):
+            if progress:
+                progress(i / len(frames_to_process), f"Extracting frames: {i}/{len(frames_to_process)}")
+                
+            if check_stop and check_stop():
+                break
+                
+            frame_path = future.result()
+            if frame_path:
+                saved_frames.append(frame_path)
+    
     return saved_frames, fps
 
 def check_gpu_usage():
@@ -230,9 +293,123 @@ def score_frames_for_stage1(frame_paths, weights=None, thresholds=None, progress
     
     return results
 
+# Replace score_frames_batched with this GPU-optimized version:
+def score_frames_batched(frame_paths, batch_size=8, weights=None, thresholds=None, progress=None, check_stop=None):
+    """Process frames in batches for better GPU utilization"""
+    device = get_device()
+    results = []
+    
+    # Default weights & thresholds (keep existing)
+    
+    # Create batches of frames
+    total_frames = len(frame_paths)
+    batches = [frame_paths[i:i+batch_size] for i in range(0, total_frames, batch_size)]
+    
+    # Process by batch
+    processed_count = 0
+    for batch_idx, batch in enumerate(batches):
+        # Check for stop signal
+        if check_stop and check_stop():
+            break
+            
+        # Report progress
+        if progress:
+            progress(processed_count/total_frames, f"Analyzing frames: {processed_count}/{total_frames}")
+        
+        # Load images in parallel
+        with ThreadPoolExecutor(max_workers=batch_size) as loader:
+            image_futures = {loader.submit(cv2.imread, path): path for path in batch}
+            batch_images = {}
+            
+            for future in as_completed(image_futures):
+                path = image_futures[future]
+                try:
+                    img = future.result()
+                    if img is not None:
+                        batch_images[path] = img
+                except Exception:
+                    pass
+        
+        # Convert to list for easier processing
+        paths = list(batch_images.keys())
+        images = list(batch_images.values())
+        
+        # Batch process sharpness (still on CPU due to OpenCV)
+        sharpness_values = []
+        for img in images:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+            sharpness_values.append(sharpness)
+        
+        # Force CUDA synchronization before face detection
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        # Process face detection - this should be using GPU if detect_faces is properly implemented
+        # But we're still doing one at a time because the function may not support batching
+        face_results = []
+        for img in images:
+            face_results.append(detect_faces(img))
+        
+        # Process results and create output entries
+        for i, (path, img, sharpness) in enumerate(zip(paths, images, sharpness_values)):
+            faces = face_results[i]
+            
+            # If no faces found, still include but mark as no-face
+            if not faces:
+                results.append({
+                    "path": path,
+                    "score": sharpness / 100,  # Simple score based on sharpness
+                    "sharpness": sharpness,
+                    "face_score": 0,
+                    "face_size": 0,
+                    "faces": 0,
+                    "has_face": False,
+                    "passed_threshold": sharpness >= thresholds["sharpness"]  # Still pass if sharp enough
+                })
+                continue
+            
+            # Find best face (highest confidence or largest)
+            max_face_size = 0
+            max_face_score = 0
+            for face in faces:
+                face_size = face["bbox"][2] * face["bbox"][3]
+                if face_size > max_face_size:
+                    max_face_size = face_size
+                    max_face_score = face["score"]
+            
+            # PERMISSIVE THRESHOLD: Pass if EITHER good face OR good sharpness
+            passed_threshold = (max_face_score >= thresholds["face_confidence"] or 
+                               sharpness >= thresholds["sharpness"])
+            
+            # Calculate overall score (simpler, no CLIP)
+            overall_score = (
+                weights["face_confidence"] * max_face_score +
+                weights["sharpness"] * (sharpness / 100) +
+                weights["face_size"] * (max_face_size / 10000)
+            )
+            
+            results.append({
+                "path": path,
+                "score": overall_score,
+                "sharpness": sharpness,
+                "face_score": max_face_score,
+                "face_size": max_face_size,
+                "faces": len(faces),
+                "has_face": True,
+                "passed_threshold": passed_threshold,
+                "stage": 1  # Mark as stage 1 processed
+            })
+            
+        processed_count += len(batch)
+    
+    return results
+
 def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram", 
-                       sample_rate=None, num_frames=None, min_frame_distance=30, 
-                       use_scene_detection=False, progress=None, check_stop=None):
+                      sample_rate=None, num_frames=None, min_frame_distance=30, 
+                      use_scene_detection=False, progress=None, check_stop=None,
+                      batch_size=8, motion_threshold=25):
+
     """
     First-stage processing: Fast extraction of potential frames
     """
@@ -273,14 +450,27 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
     }
     
     # Extract frames at given sample rate
-    frames, fps = extract_frames(video_path, output_dir, sample_rate)
+    frames, fps = extract_frames_optimized(
+        video_path, 
+        output_dir, 
+        sample_rate=sample_rate,
+        progress=progress,
+        check_stop=check_stop
+    )
     
     if not frames:
         print("No frames were extracted from the video.")
         return [], fps, 0, None, None
     
-    # Score frames with stage 1 function (fast)
-    scored_frames = score_frames_for_stage1(frames, weights=weights, thresholds=thresholds, progress=progress, check_stop=check_stop)
+    # Use batch processing for scoring
+    scored_frames = score_frames_batched(
+        frames, 
+        batch_size=8,  # Adjust based on your GPU memory
+        weights=weights, 
+        thresholds=thresholds, 
+        progress=progress,
+        check_stop=check_stop
+    )
     
     # Get passed frames
     passed_frames = [f for f in scored_frames if f.get("passed_threshold", False)]
@@ -399,3 +589,67 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
 
     # Return both directories in the results
     return diverse_frames, fps, len(frames), storage_dir, best_frames_dir
+
+# 1. First, add a proper GPU check at the start of the file
+def check_and_initialize_gpu():
+    """Initialize GPU properly and report status"""
+    if torch.cuda.is_available():
+        device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(device)
+        memory_total = torch.cuda.get_device_properties(device).total_memory / (1024**3)  # GB
+        
+        print(f"GPU initialized: {device_name}")
+        print(f"Total VRAM: {memory_total:.2f} GB")
+        
+        # Set higher memory fraction for CUDA
+        torch.cuda.set_per_process_memory_fraction(0.8)  # Use up to 80% of VRAM
+        return True
+    else:
+        print("CUDA not available - using CPU")
+        return False
+
+# Call this at the top of select_frames_stage1
+has_gpu = check_and_initialize_gpu()
+
+# Add this function to verify GPU usage (step 3)
+def verify_face_detection_gpu_usage(img):
+    """Verify that face detection is using GPU effectively"""
+    print("Testing GPU usage in face detection...")
+    
+    if torch.cuda.is_available():
+        # Record baseline memory
+        torch.cuda.synchronize()
+        baseline_mem = torch.cuda.memory_allocated() / (1024**2)
+        
+        # Run detection
+        from pipelines.face.detection import detect_faces
+        faces = detect_faces(img)
+        
+        # Check memory after
+        torch.cuda.synchronize()
+        after_mem = torch.cuda.memory_allocated() / (1024**2)
+        diff = after_mem - baseline_mem
+        
+        print(f"GPU memory used for detection: {diff:.2f} MB")
+        if diff < 10:
+            print("WARNING: Face detection may not be using GPU properly!")
+        else:
+            print(f"Found {len(faces)} faces using GPU")
+    else:
+        print("No GPU available")
+    
+    return
+
+# Add this at the beginning of select_frames_stage1
+def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram"):
+    # Existing code...
+    
+    # Extract first frame and verify GPU usage
+    temp_video = cv2.VideoCapture(video_path)
+    success, first_frame = temp_video.read()
+    temp_video.release()
+    
+    if success:
+        verify_face_detection_gpu_usage(first_frame)
+    
+    # Continue with the rest of the function...

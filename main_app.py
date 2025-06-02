@@ -18,7 +18,7 @@ from front_end.UI_face import face_tab
 from front_end.UI_finalize import finalize_tab
 from front_end.UI_nsfw import nsfw_tab
 from front_end.UI_pose  import pose_tab
-from front_end.UI_video import video_tab
+from front_end.UI_video_stage_1 import video_tab_stage1
 
 def upload_files(files):
     import mimetypes
@@ -97,7 +97,7 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"
 with gr.Blocks() as app:
     main_tab(upload_files, clear_uploads, restart_script, update_previews)
     face_tab(UPLOADS_DIR)
-    video_tab(UPLOADS_DIR)
+    video_tab_stage1(UPLOADS_DIR)
     body_tab()
     pose_tab()
     camera_tab()
