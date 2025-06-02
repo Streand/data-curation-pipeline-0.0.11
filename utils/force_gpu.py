@@ -13,6 +13,8 @@ def print_available_providers():
         print("WARNING: CUDA provider not available in ONNX Runtime!")
         print("This is why face detection is falling back to CPU.")
         print("Try reinstalling onnxruntime-gpu with: pip install --force-reinstall onnxruntime-gpu")
+    else:
+        print("CUDA provider available for ONNX Runtime - good!")
 
 def force_gpu_initialization():
     """Force proper GPU initialization for both PyTorch and ONNX Runtime"""
@@ -42,11 +44,6 @@ def force_gpu_initialization():
         print(f"PyTorch CUDA version: {cuda_version}")
         print(f"Your GPU: {device_name}")
         
-        # For RTX 50 series, suggest specific versions
-        if "RTX 50" in device_name:
-            print("NOTICE: You're using a very new RTX 50 series GPU.")
-            print("The pre-built PyTorch CUDA kernels may not fully support this architecture yet.")
-            print("Recommendation: Use CPU mode for now or try latest PyTorch nightly builds.")
     except Exception as e:
         print(f"Error during basic CUDA test: {str(e)}")
         print("Falling back to CPU mode for stability.")
@@ -59,29 +56,51 @@ def force_gpu_initialization():
     print_available_providers()
     
     try:
-        # 5. Try to use insightface in CPU mode instead
-        print("Trying to use insightface on CPU for compatibility...")
+        # 5. Try to use insightface with CUDA first
+        print("Attempting to initialize insightface with CUDA...")
         model = insightface.app.FaceAnalysis(
             name="buffalo_l",
-            providers=['CPUExecutionProvider']  # CPU only for stability
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
         )
-        model.prepare(ctx_id=-1, det_size=(640, 640))
+        model.prepare(ctx_id=0, det_size=(640, 640))
         
         # Create a test image and run detection
-        test_img = np.ones((320, 320, 3), dtype=np.uint8) * 128  # Smaller image for CPU
+        test_img = np.ones((640, 640, 3), dtype=np.uint8) * 128
         
-        # Time the detection operation
+        # Check memory usage and time 
+        mem_before = torch.cuda.memory_allocated() / (1024**2)
+        
         import time
+        torch.cuda.synchronize()
         start = time.time()
         
         _ = model.get(test_img)
         
+        torch.cuda.synchronize()
         end = time.time()
+        mem_after = torch.cuda.memory_allocated() / (1024**2)
         
-        print(f"Face detection test on CPU: {(end-start)*1000:.1f}ms")
-        print("Successfully initialized face detection on CPU mode.")
-        return False  # Return False to indicate we're using CPU mode
+        print(f"Face detection test on CUDA: {(end-start)*1000:.1f}ms")
+        print(f"GPU memory usage: {mem_after-mem_before:.1f} MB")
+        
+        if mem_after - mem_before < 10.0:
+            print("WARNING: GPU memory usage is suspiciously low. May still be using CPU.")
+            
+        return True
             
     except Exception as e:
-        print(f"Error testing face detection: {e}")
-        return False
+        print(f"Error using GPU for face detection: {e}")
+        print("Trying CPU fallback...")
+        
+        try:
+            model = insightface.app.FaceAnalysis(
+                name="buffalo_l",
+                providers=['CPUExecutionProvider']
+            )
+            model.prepare(ctx_id=-1, det_size=(640, 640))
+            _ = model.get(test_img)
+            print("Successfully initialized face detection on CPU mode.")
+            return False
+        except Exception as e2:
+            print(f"CPU fallback also failed: {e2}")
+            return False

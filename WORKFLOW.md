@@ -128,3 +128,24 @@ Batch Size
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+nvidia RTX 5000 usage:
+    building from source , is requiered since  The RTX 5080 is a very new GPU and the pre-built CUDA kernels don't support this architecture properly.
+
+# Make a separate directory for builds
+mkdir e:\ml_builds
+cd e:\ml_builds
+
+# Create dedicated venv for building
+python -m venv pytorch_build_env
+pytorch_build_env\Scripts\activate
+
+# Clone and build PyTorch here
+git clone https://github.com/pytorch/pytorch
+cd pytorch
+git submodule update --init --recursive
+
+# After building, you can install the custom PyTorch into your project's venv
+pip install -e .
+cd path\to\your\project\venv
+venv\Scripts\activate
+pip install -e e:\ml_builds\pytorch
