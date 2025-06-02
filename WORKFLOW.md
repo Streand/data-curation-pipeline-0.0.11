@@ -149,3 +149,36 @@ pip install -e .
 cd path\to\your\project\venv
 venv\Scripts\activate
 pip install -e e:\ml_builds\pytorch
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# From Main_app.py
+
+    GPU optimization settings
+
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+           - Purpose: Controls PyTorch's CUDA memory allocator behavior
+           - Effect: Limits individual memory block allocations to 512MB
+           - Benefit: Reduces memory fragmentation, which helps prevent out-of-memory errors with large models or when processing large batches
+
+
+        os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'
+          - Purpose: Enables TF32 math mode on your Blackwell GPU
+          - Effect: Uses a special numerical format that's faster but slightly less precise than FP32
+          - Benefit: Up to 3x faster matrix multiplications with minimal precision loss
+          - Perfect for: Your RTX 5080, which has dedicated TF32 tensor cores
+
+
+        os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
+        - Purpose: Defers loading CUDA modules until actually needed
+        - Effect: Components load on-demand rather than all at startup
+        - Benefit: Faster application startup and potentially lower memory usage
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#techincal connection:
+
+Main_app.py
+        └── UI_video_stage_1.py
+                    └── videostage1.py
+

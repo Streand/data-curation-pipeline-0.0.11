@@ -17,7 +17,7 @@ def stop_video_processing():
     return "Processing will stop after current frame. Please wait..."
 
 def open_folder(folder_path):
-    """Open the specified folder in the file explorer"""
+    """Open the specified folder in Windows File Explorer"""
     if not folder_path:
         return "No folder specified"
     
@@ -25,13 +25,8 @@ def open_folder(folder_path):
         return f"Folder not found: {folder_path}"
     
     try:
-        if os.name == 'nt':  # Windows
-            subprocess.run(['explorer', '/select,', folder_path], shell=True)
-        elif os.name == 'posix':  # macOS/Linux
-            if os.path.exists('/usr/bin/open'):  # macOS
-                subprocess.call(['open', folder_path])
-            else:  # Linux
-                subprocess.call(['xdg-open', folder_path])
+        # Windows-only implementation
+        subprocess.run(['explorer', '/select,', folder_path], shell=True)
         return f"Opened folder: {folder_path}"
     except Exception as e:
         return f"Error opening folder: {str(e)}"

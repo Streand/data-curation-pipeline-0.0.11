@@ -1,9 +1,9 @@
 import os
 
 # GPU optimization settings
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
-os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'
-os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
+# os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'       # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
+# os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'                  # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
+# os.environ['CUDA_MODULE_LOADING'] = 'LAZY'                            # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
 
 import sys
 import gradio as gr

@@ -417,7 +417,8 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
     if success:
         verify_face_detection_gpu_usage(first_frame)
     
-    if check_stop is None:
+    # Fix: Make sure check_stop is actually callable
+    if check_stop is None or not callable(check_stop):
         check_stop = lambda: False
     
     app_root = get_app_root()
