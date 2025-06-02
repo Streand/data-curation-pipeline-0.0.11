@@ -3,3 +3,4 @@ uploads/
 __pycache__/
 frame_output/
 store_images/
+models/

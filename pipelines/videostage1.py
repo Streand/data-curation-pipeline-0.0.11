@@ -474,10 +474,21 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
             failed_frames[i]["passed_threshold"] = True
             passed_frames.append(failed_frames[i])
     
-    if len(frames) == 0 or len(passed_frames) == 0:
-        print("No frames were extracted or passed thresholds.")
+    # Add these safety checks before processing frames
+    if len(frames) == 0:
+        print(f"No frames extracted from video: {video_path}")
         return [], fps, 0, None, None
 
+    if len(passed_frames) == 0:
+        print(f"No frames passed quality thresholds in video: {video_path}")
+        return [], fps, 0, None, None
+
+    def normalize_path(path):
+        """Normalize path for consistent string comparison"""
+        return os.path.normpath(os.path.abspath(path))
+
+    # When selecting diverse frames, add try/except
+    frame_paths_map = {normalize_path(path): i for i, path in enumerate(frames)}
     diverse_frames = []
     selected_indices = []
     
@@ -486,17 +497,29 @@ def select_frames_stage1(video_path, output_dir=None, preset="TikTok/Instagram",
     
     for frame in passed_frames:
         try:
-            frame_idx = frames.index(frame["path"])
-            
-            if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
-                diverse_frames.append(frame)
-                selected_indices.append(frame_idx)
+            norm_path = normalize_path(frame["path"])
+            if norm_path in frame_paths_map:
+                frame_idx = frame_paths_map[norm_path]
                 
-            if len(diverse_frames) >= num_frames:
-                break
-        except ValueError as e:
-            # Path not found in frames list
-            print(f"Warning: Frame path not found in frames list: {frame['path']}")
+                if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
+                    diverse_frames.append(frame)
+                    selected_indices.append(frame_idx)
+                    
+                if len(diverse_frames) >= num_frames:
+                    break
+            else:
+                # Path normalization didn't help, try direct search
+                print(f"Path not found in map, trying direct search: {frame['path']}")
+                frame_idx = frames.index(frame["path"])
+                
+                if all(abs(frame_idx - selected) >= min_frame_distance for selected in selected_indices):
+                    diverse_frames.append(frame)
+                    selected_indices.append(frame_idx)
+        except ValueError:
+            print(f"Warning: Frame path not found in frames list: {frame.get('path', 'unknown')}")
+            continue
+        except Exception as e:
+            print(f"Error during frame selection: {str(e)}")
             continue
     
     if len(diverse_frames) < num_frames:
