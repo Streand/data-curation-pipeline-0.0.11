@@ -1,3 +1,0 @@
-echo Activating virtual environment...
-call venv\Scripts\activate.bat
-python test_onnxruntime.py %*
