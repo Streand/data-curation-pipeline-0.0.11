@@ -1,7 +1,13 @@
-import sys
 import os
-import shutil
+
+# Configure PyTorch for newer GPUs
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'
+os.environ['CUDA_MODULE_LOADING'] = 'LAZY'  # Helps with newer architectures
+
+import sys
 import gradio as gr
+import shutil
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "front_end"))
 from front_end.UI_main import main_tab
 from front_end.UI_accessories import accessories_tab

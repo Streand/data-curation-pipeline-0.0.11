@@ -2,7 +2,8 @@ import gradio as gr
 import os
 import cv2
 import shutil
-from pipelines.video import select_best_frames
+from pipelines.video import VIDEO_PRESETS, select_best_frames
+import matplotlib.pyplot as plt
 
 def process_video(uploads_dir, sample_rate, num_frames, use_clip=True, clip_prompt="a high quality portrait photo, professional headshot", use_scene_detection=True):
     # Get all video files from uploads
@@ -84,26 +85,57 @@ def video_tab(uploads_dir):
         gr.Markdown("## Video Frame Selection")
         
         with gr.Row():
+            content_preset = gr.Radio(
+                choices=["TikTok/Instagram", "YouTube", "Custom"],
+                label="Content Type Preset",
+                value="Custom"
+            )
+        
+        with gr.Row():
             sample_rate = gr.Slider(
                 minimum=1, maximum=60, value=15, step=1, 
                 label="Sample Rate (frames to skip)"
             )
             num_frames = gr.Slider(
-                minimum=5, maximum=100, value=20, step=5,
-                label="Number of Best Frames to Select"
+                minimum=0, maximum=100, value=20, step=5,
+                label="Number of Best Frames (0 = auto based on length)"
             )
         
         with gr.Accordion("Advanced Options", open=False):
-            use_clip = gr.Checkbox(label="Use CLIP for aesthetic scoring", value=True)
+            use_clip = gr.Checkbox(label="Use CLIP for aesthetic scoring", value=False)  # Default to unchecked
+            
+            # Make clip_prompt visible only when CLIP is enabled
             clip_prompt = gr.Textbox(
                 label="CLIP Prompt", 
-                value="a high quality portrait photo, professional headshot", 
-                visible=True
+                value="a high quality portrait photo, professional headshot",
+                visible=False  # Initially hidden
             )
-            use_scene_detection = gr.Checkbox(label="Filter similar frames", value=True)
+            
+            # Add a visibility dependency
+            use_clip.change(
+                fn=lambda x: gr.update(visible=x),
+                inputs=[use_clip],
+                outputs=[clip_prompt]
+            )
+            
+            use_scene_detection = gr.Checkbox(label="Boost frames at scene changes", value=True)
+            min_frame_distance = gr.Slider(
+                minimum=5, maximum=60, value=30, step=5,
+                label="Minimum Frame Distance (for diversity)"
+            )
+            
+        with gr.Accordion("Scoring Parameters", open=False):
+            gr.Markdown("### Adjust weights for frame scoring")
+            face_weight = gr.Slider(minimum=0.1, maximum=1.0, value=0.4, step=0.05, label="Face Detection Weight")
+            sharpness_weight = gr.Slider(minimum=0.1, maximum=1.0, value=0.2, step=0.05, label="Sharpness Weight")
+            aesthetic_weight = gr.Slider(minimum=0.1, maximum=1.0, value=0.2, step=0.05, label="Aesthetic (CLIP) Weight")
+            size_weight = gr.Slider(minimum=0.1, maximum=1.0, value=0.2, step=0.05, label="Face Size Weight")
+            
+            gr.Markdown("### Minimum thresholds")
+            face_threshold = gr.Slider(minimum=0.7, maximum=0.99, value=0.95, step=0.01, label="Face Confidence Threshold")
         
         # Status display
-        status = gr.Markdown("Click 'Process Videos' to extract the best frames from uploaded videos")
+        status = gr.Markdown("Click 'Process Videos' to extract the best frames")
         
         # Run button
         run_btn = gr.Button("Process Videos")
@@ -112,11 +144,123 @@ def video_tab(uploads_dir):
         gallery = gr.Gallery(label="Selected Best Frames", show_label=True, columns=4, height=600)
         results_json = gr.JSON(label="Processing Results")
         
+        # Add visualization for scores
+        with gr.Accordion("Frame Score Analysis", open=False):
+            score_chart = gr.Plot(label="Frame Quality Distribution")
+        
+        # Update UI based on preset selection
+        def update_settings_for_preset(preset):
+            if preset == "Custom":
+                return (
+                    gr.update(value=15), gr.update(value=20), gr.update(value=True),
+                    gr.update(value="a high quality portrait photo, professional headshot"),
+                    gr.update(value=True), gr.update(value=30),
+                    gr.update(value=0.4), gr.update(value=0.2), gr.update(value=0.2), 
+                    gr.update(value=0.2), gr.update(value=0.95)
+                )
+            
+            preset_config = VIDEO_PRESETS[preset]
+            weights = preset_config["scoring_weights"]
+            thresholds = preset_config["thresholds"]
+            
+            return (
+                gr.update(value=preset_config["sample_rate"]), 
+                gr.update(value=preset_config["number_of_best_frames"]),
+                gr.update(value=preset_config["use_clip_aesthetic"]), 
+                gr.update(value=preset_config["clip_prompt"]),
+                gr.update(value=preset_config["filter_similar_frames"]), 
+                gr.update(value=thresholds["minimum_frame_distance"]),
+                gr.update(value=weights["face_confidence"]), 
+                gr.update(value=weights["sharpness"]), 
+                gr.update(value=weights["aesthetic"]), 
+                gr.update(value=weights["face_size"]), 
+                gr.update(value=thresholds["face_confidence"])
+            )
+        
+        # Create score visualization
+        def create_score_plot(results_data):
+            if not results_data or "results" not in results_data:
+                return None
+                
+            fig = plt.figure(figsize=(10, 6))
+            scores = []
+            labels = []
+            
+            for i, video_result in enumerate(results_data["results"]):
+                for frame in video_result.get("best_frames", []):
+                    scores.append(frame.get("score", 0))
+                    labels.append(frame.get("filename", f"Frame {len(scores)}"))
+            
+            plt.bar(range(len(scores)), scores)
+            plt.xticks(range(len(scores)), labels, rotation=90)
+            plt.xlabel("Frame")
+            plt.ylabel("Quality Score")
+            plt.title("Frame Quality Distribution")
+            plt.tight_layout()
+            return fig
+        
+        # Connect preset selection to UI update
+        content_preset.change(
+            fn=update_settings_for_preset,
+            inputs=[content_preset],
+            outputs=[
+                sample_rate, num_frames, use_clip, clip_prompt, use_scene_detection, 
+                min_frame_distance, face_weight, sharpness_weight, aesthetic_weight,
+                size_weight, face_threshold
+            ]
+        )
+        
+        # Update process_video to include score visualization
+        def process_video_with_presets(uploads_dir, preset, sample_rate, num_frames, use_clip, clip_prompt, 
+                                      use_scene_detection, min_frame_distance, face_weight, sharpness_weight,
+                                      aesthetic_weight, size_weight, face_threshold):
+            # Create custom weights and thresholds
+            weights = {
+                "face_confidence": face_weight,
+                "sharpness": sharpness_weight,
+                "aesthetic": aesthetic_weight,
+                "face_size": size_weight
+            }
+            
+            thresholds = {
+                "face_confidence": face_threshold,
+                "minimum_frame_distance": min_frame_distance
+            }
+            
+            # Override preset with custom values
+            if preset == "Custom":
+                VIDEO_PRESETS["Custom"]["sample_rate"] = sample_rate
+                VIDEO_PRESETS["Custom"]["number_of_best_frames"] = num_frames
+                VIDEO_PRESETS["Custom"]["use_clip_aesthetic"] = use_clip
+                VIDEO_PRESETS["Custom"]["clip_prompt"] = clip_prompt
+                VIDEO_PRESETS["Custom"]["filter_similar_frames"] = use_scene_detection
+                VIDEO_PRESETS["Custom"]["scoring_weights"] = weights
+                VIDEO_PRESETS["Custom"]["thresholds"] = thresholds
+            
+            # Call your existing process_video function with these parameters
+            # This already calls select_best_frames internally with the right parameters
+            gallery_images, results_json_data, status_text = process_video(
+                uploads_dir, 
+                sample_rate, 
+                num_frames, 
+                use_clip, 
+                clip_prompt, 
+                use_scene_detection
+            )
+            
+            
+            # Create visualization
+            fig = create_score_plot(results_json_data)
+            
+            return gallery_images, results_json_data, status_text, fig
+        
         # Run video processing when button is clicked
         run_btn.click(
-            fn=lambda sr, nf, clip, prompt, scene: process_video(
-                uploads_dir, sr, nf, use_clip=clip, clip_prompt=prompt, use_scene_detection=scene
-            ),
-            inputs=[sample_rate, num_frames, use_clip, clip_prompt, use_scene_detection],
-            outputs=[gallery, results_json, status]
+            fn=process_video_with_presets,
+            inputs=[
+                gr.State(uploads_dir), content_preset, sample_rate, num_frames, 
+                use_clip, clip_prompt, use_scene_detection, min_frame_distance,
+                face_weight, sharpness_weight, aesthetic_weight, size_weight, face_threshold
+            ],
+            outputs=[gallery, results_json, status, score_chart]
         )
