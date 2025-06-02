@@ -32,8 +32,6 @@ main requirements for insightface (especially for insightface>=0.6.0
     ✅  requests
     ✅  tqdm
 
-    Testing requirements
-    ✅   CV2
 
     Optional/extra dependencies (for some features)
         mxnet (for legacy models, rarely needed in recent versions)
@@ -77,5 +75,30 @@ All main requirements for insightface are installed in venv
     testing file:
         test_insightface.py
             └──requierments: ok
+
+######################################
+to make insightface update from 0.6.0 to 0.7.3 was needed
+pip install --upgrade insightface
+
+with the current setup, cuda is used for insightface
+    Vram tester: test_cuda_vram.py
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+#V1 Requierments for base insightface 0.7.3
+
+    #for Torch on RTX 50000
+        ├── pip install https://huggingface.co/w-e-w/torch-2.6.0-cu128.nv/resolve/main/torch-2.6.0+cu128.nv-cp310-cp310-win_amd64.whl
+        └── pip install https://huggingface.co/w-e-w/torch-2.6.0-cu128.nv/resolve/main/torchvision-0.20.0a0+cu128.nv-cp310-cp310-win_amd64.whl
+
+    
+    #Main requirements for insightface
+        ├── pip install insightface
+        ├── pip install scipy
+        ├── pip install opencv-python
+        ├── pip install requests
+        ├── pip install tqdm
+        ├──pip install numpy<2.0.0
+        └──pip install onnxruntime-gpu>=1.17.0
 
 
