@@ -18,10 +18,14 @@ from front_end.UI_face import face_tab
 from front_end.UI_finalize import finalize_tab
 from front_end.UI_nsfw import nsfw_tab
 from front_end.UI_pose import pose_tab
-from front_end.UI_video_stage_1 import video_tab_stage1
+from front_end.UI_video_tab import UI_video_tab
+
+# Define constants for image and video subdirectories
+IMAGES_SUBDIR = "images"
+VIDEOS_SUBDIR = "videos"
 
 def upload_files(files):
-    """Upload media files to the uploads directory.
+    """Upload media files to the uploads directory, splitting into images and videos subdirectories.
     
     Args:
         files: List of file paths to upload
@@ -32,17 +36,32 @@ def upload_files(files):
     import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
-    os.makedirs(save_dir, exist_ok=True)
+    images_dir = os.path.join(save_dir, IMAGES_SUBDIR)
+    videos_dir = os.path.join(save_dir, VIDEOS_SUBDIR)
+    
+    # Create subdirectories if they don't exist
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(videos_dir, exist_ok=True)
+    
     skipped = 0
     uploaded = 0
     
     for f in files:
         mime, _ = mimetypes.guess_type(f)
-        if not mime or not (mime.startswith("image") or mime.startswith("video")):
+        if not mime:
             skipped += 1
             continue
             
-        dest = os.path.join(save_dir, os.path.basename(f))
+        # Determine the destination directory based on mime type
+        if mime.startswith("image"):
+            dest_dir = images_dir
+        elif mime.startswith("video"):
+            dest_dir = videos_dir
+        else:
+            skipped += 1
+            continue
+            
+        dest = os.path.join(dest_dir, os.path.basename(f))
         if os.path.exists(dest):
             skipped += 1
             continue
@@ -58,7 +77,7 @@ def upload_files(files):
         return f"Upload OK: {uploaded} file(s)."
 
 def clear_uploads():
-    """Remove all files from the uploads directory."""
+    """Remove all files from the uploads directory and its subdirectories."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
     if os.path.exists(save_dir):
@@ -71,6 +90,10 @@ def clear_uploads():
                     shutil.rmtree(file_path)
             except Exception:
                 pass  # Silently ignore errors during cleanup
+        
+        # Create subdirectories after clearing
+        os.makedirs(os.path.join(save_dir, IMAGES_SUBDIR), exist_ok=True)
+        os.makedirs(os.path.join(save_dir, VIDEOS_SUBDIR), exist_ok=True)
     return "Uploads folder cleared!"
 
 def restart_script():
@@ -88,26 +111,43 @@ def update_previews(_=None):
     import mimetypes
     base_dir = os.path.dirname(os.path.abspath(__file__))
     save_dir = os.path.join(base_dir, "uploads")
+    images_dir = os.path.join(save_dir, IMAGES_SUBDIR)
+    videos_dir = os.path.join(save_dir, VIDEOS_SUBDIR)
+    
     media_files = []
     file_names = []
-    if os.path.exists(save_dir):
-        for f in os.listdir(save_dir):
-            full_path = os.path.join(save_dir, f)
+    
+    # Check images directory
+    if os.path.exists(images_dir):
+        for f in os.listdir(images_dir):
+            full_path = os.path.join(images_dir, f)
             mime, _ = mimetypes.guess_type(full_path)
-            if mime and (mime.startswith("image") or mime.startswith("video")):
+            if mime and mime.startswith("image"):
                 media_files.append(full_path)
-            file_names.append(f)
+                file_names.append(f"[Image] {f}")
+    
+    # Check videos directory
+    if os.path.exists(videos_dir):
+        for f in os.listdir(videos_dir):
+            full_path = os.path.join(videos_dir, f)
+            mime, _ = mimetypes.guess_type(full_path)
+            if mime and mime.startswith("video"):
+                media_files.append(full_path)
+                file_names.append(f"[Video] {f}")
+    
     return media_files, "\n".join(f"- {name}" for name in file_names)
 
 # Clean uploads folder on startup
 clear_uploads()
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+UPLOADS_IMAGES_DIR = os.path.join(UPLOADS_DIR, IMAGES_SUBDIR)
+UPLOADS_VIDEOS_DIR = os.path.join(UPLOADS_DIR, VIDEOS_SUBDIR)
 
 with gr.Blocks() as app:
     main_tab(upload_files, clear_uploads, restart_script, update_previews)
-    face_tab(UPLOADS_DIR)
-    video_tab_stage1(UPLOADS_DIR)
+    face_tab(UPLOADS_IMAGES_DIR)  # Pass images directory to face tab
+    UI_video_tab(UPLOADS_VIDEOS_DIR)  # Pass videos directory to video tab
     body_tab()
     pose_tab()
     camera_tab()
@@ -123,6 +163,10 @@ if __name__ == "__main__":
     
     video_stage1_dir = os.path.join(store_images_dir, "video_stage_1")
     os.makedirs(video_stage1_dir, exist_ok=True)
+    
+    # Create image and video subdirectories in uploads
+    os.makedirs(UPLOADS_IMAGES_DIR, exist_ok=True)
+    os.makedirs(UPLOADS_VIDEOS_DIR, exist_ok=True)
     
     # Launch the Gradio app with access to the store_images directory
     app.launch(

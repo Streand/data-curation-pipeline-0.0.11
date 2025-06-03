@@ -34,10 +34,14 @@ def process_all_images(uploads_dir):
     
     return gallery_images, results
 
-def face_tab(uploads_dir):
+def face_tab(image_dir=None):
     with gr.Tab("Face Tab"):
         gr.Markdown("## Face Detection on Uploaded Images")
-        
+
+        if image_dir is None:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            image_dir = os.path.join(base_dir, "uploads", "images")
+    
         # Status display
         status = gr.Markdown("Click 'Run Face Detection' to process all uploaded images")
         
@@ -50,7 +54,7 @@ def face_tab(uploads_dir):
         
         # Run detection on all images when button is clicked
         run_btn.click(
-            fn=lambda: process_all_images(uploads_dir),
+            fn=lambda: process_all_images(image_dir),  # Changed to image_dir
             inputs=None,
             outputs=[gallery, results_json]
         )
