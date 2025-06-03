@@ -149,6 +149,44 @@ def UI_video_stage_1(video_dir=None):
             open_folder_btn = gr.Button("Open Output Folder", variant="secondary") 
             process_btn = gr.Button("Process Videos", variant="primary", size="lg")
         
+        # MOVED: Advanced parameters accordion directly after buttons
+        with gr.Accordion("Advanced Parameters", open=False):
+            # Presets for quick configuration
+            preset = gr.Radio(
+                ["Default", "High Quality", "Fast Processing"],
+                label="Configuration Preset",
+                value="Default",
+                interactive=True
+            )
+            
+            with gr.Row():
+                with gr.Column():
+                    frame_interval = gr.Slider(
+                        minimum=1, maximum=120, value=30, step=1,
+                        label="Frame Interval (process every Nth frame)"
+                    )
+                    
+                    max_frames = gr.Slider(
+                        minimum=1, maximum=50, value=10, step=1,
+                        label="Maximum Frames to Extract (per video)"
+                    )
+                
+                with gr.Column():
+                    min_distance = gr.Slider(
+                        minimum=5, maximum=120, value=30, step=5,
+                        label="Minimum Frame Distance"
+                    )
+                    
+                    face_confidence = gr.Slider(
+                        minimum=0.5, maximum=0.99, value=0.9, step=0.01,
+                        label="Minimum Face Confidence"
+                    )
+                    
+                    sharpness_threshold = gr.Slider(
+                        minimum=50, maximum=200, value=100, step=5,
+                        label="Minimum Sharpness"
+                    )
+        
         # Gallery to display images
         gallery = gr.Gallery(
             label="Extracted Frames", 
@@ -158,47 +196,9 @@ def UI_video_stage_1(video_dir=None):
             object_fit="contain"
         )
         
-        # Processing details and parameters in collapsible accordion
+        # Processing details in collapsible accordion (Advanced Parameters removed from here)
         with gr.Accordion("Processing Details", open=True):
             result_json = gr.JSON(label="Processing Results")
-            
-            # Add advanced parameters in a nested accordion
-            with gr.Accordion("Advanced Parameters", open=False):
-                # Presets for quick configuration
-                preset = gr.Radio(
-                    ["Default", "High Quality", "Fast Processing"],
-                    label="Configuration Preset",
-                    value="Default",
-                    interactive=True
-                )
-                
-                with gr.Row():
-                    with gr.Column():
-                        frame_interval = gr.Slider(
-                            minimum=1, maximum=120, value=30, step=1,
-                            label="Frame Interval (process every Nth frame)"
-                        )
-                        
-                        max_frames = gr.Slider(
-                            minimum=1, maximum=50, value=10, step=1,
-                            label="Maximum Frames to Extract (per video)"
-                        )
-                    
-                    with gr.Column():
-                        min_distance = gr.Slider(
-                            minimum=5, maximum=120, value=30, step=5,
-                            label="Minimum Frame Distance"
-                        )
-                        
-                        face_confidence = gr.Slider(
-                            minimum=0.5, maximum=0.99, value=0.9, step=0.01,
-                            label="Minimum Face Confidence"
-                        )
-                        
-                        sharpness_threshold = gr.Slider(
-                            minimum=50, maximum=200, value=100, step=5,
-                            label="Minimum Sharpness"
-                        )
 
         # Function definitions
         def apply_preset(preset_name):
