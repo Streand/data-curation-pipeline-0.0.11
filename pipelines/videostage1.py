@@ -5,13 +5,12 @@ import numpy as np
 import time
 import json
 from datetime import datetime
-import insightface
+import insightface  # Needed for FaceAnalysis import below
 from insightface.app import FaceAnalysis
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import torch
+from concurrent.futures import ThreadPoolExecutor  # Removed unused as_completed
+import torch  # Needed for the get_device() function
 import sys
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Union, Callable
+from typing import List, Dict  # Removed unused type imports
 
 # Simple logger setup
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +53,10 @@ class VideoProcessor:
         
         # Set up thread pool for parallel processing when needed
         self.executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Store current thresholds (these will be updated from process_batch)
+        self.face_confidence_threshold = FACE_CONFIDENCE_THRESHOLD
+        self.sharpness_threshold = SHARPNESS_THRESHOLD
 
     def _initialize_face_detector(self) -> FaceAnalysis:
         """Initialize and configure the InsightFace detector"""
@@ -146,7 +149,12 @@ class VideoProcessor:
         """
         video_name = os.path.splitext(os.path.basename(video_path))[0]
         frame_dir = os.path.join(self.output_dir, video_name)
-        os.makedirs(frame_dir, exist_ok=True)
+        
+        try:
+            os.makedirs(frame_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating frame directory {frame_dir}: {e}")
+            return []
         
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -191,14 +199,18 @@ class VideoProcessor:
                     "max_face_score": max_face_score
                 }
                 
+                # Use the instance thresholds which are set by process_batch
                 # Save quality frames with faces that pass our threshold
-                if faces and max_face_score >= FACE_CONFIDENCE_THRESHOLD and sharpness >= SHARPNESS_THRESHOLD:
+                if faces and max_face_score >= self.face_confidence_threshold and sharpness >= self.sharpness_threshold:
                     frame_filename = f"{video_name}_{frame_count:06d}.jpg"
                     frame_path = os.path.join(frame_dir, frame_filename)
                     
-                    cv2.imwrite(frame_path, frame)
-                    frame_info["path"] = frame_path
-                    extracted_count += 1
+                    try:
+                        cv2.imwrite(frame_path, frame)
+                        frame_info["path"] = frame_path
+                        extracted_count += 1
+                    except Exception as e:
+                        print(f"Error saving frame to {frame_path}: {e}")
                 
                 frames_info.append(frame_info)
                 
@@ -310,8 +322,11 @@ class VideoProcessor:
             
             # Save metadata to JSON
             metadata_path = os.path.join(self.output_dir, f"{os.path.splitext(video_name)[0]}_metadata.json")
-            with open(metadata_path, 'w') as f:
-                json.dump(result, f, indent=4)
+            try:
+                with open(metadata_path, 'w') as f:
+                    json.dump(result, f, indent=4)
+            except Exception as e:
+                print(f"Error saving metadata to {metadata_path}: {e}")
                 
             return result
             
@@ -331,7 +346,9 @@ def process_batch(video_dir: str,
                   output_dir: str = None, 
                   frame_interval: int = 30,
                   max_frames: int = 10,
-                  min_distance: int = 30) -> Dict:
+                  min_distance: int = 30,
+                  face_confidence_threshold: float = FACE_CONFIDENCE_THRESHOLD,
+                  sharpness_threshold: float = SHARPNESS_THRESHOLD) -> Dict:
     """
     Process a batch of videos in a directory.
     
@@ -341,28 +358,37 @@ def process_batch(video_dir: str,
         frame_interval: Extract every nth frame
         max_frames: Maximum number of frames to return per video
         min_distance: Minimum frame distance between selected frames
+        face_confidence_threshold: Minimum confidence for face detection
+        sharpness_threshold: Minimum sharpness threshold
         
     Returns:
         Dictionary with processing results for all videos
     """
     if not os.path.exists(video_dir):
-        return {"error": f"Directory not found: {video_dir}"}
+        return {"error": f"Directory not found: {video_dir}", "total_videos": 0, "results": []}
         
     # Set default output directory if not provided
     if output_dir is None:
         output_dir = os.path.join(video_dir, "frames")
-        
-    os.makedirs(output_dir, exist_ok=True)
+    
+    try:    
+        os.makedirs(output_dir, exist_ok=True)
+    except Exception as e:
+        return {"error": f"Error creating output directory: {str(e)}", "total_videos": 0, "results": []}
     
     # Get video files
     video_files = [f for f in os.listdir(video_dir) 
-                   if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
+                  if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
                    
     if not video_files:
-        return {"error": f"No video files found in {video_dir}"}
+        return {"error": f"No video files found in {video_dir}", "total_videos": 0, "results": []}
     
     # Initialize processor
     processor = VideoProcessor(output_dir=output_dir)
+    
+    # Update thresholds on the processor instance
+    processor.face_confidence_threshold = face_confidence_threshold
+    processor.sharpness_threshold = sharpness_threshold
     
     # Process each video
     results = []
@@ -387,8 +413,12 @@ def process_batch(video_dir: str,
     }
     
     # Save batch metadata
-    batch_metadata_path = os.path.join(output_dir, f"batch_metadata_{int(time.time())}.json")
-    with open(batch_metadata_path, 'w') as f:
-        json.dump(batch_result, f, indent=4)
+    try:
+        batch_metadata_path = os.path.join(output_dir, f"batch_metadata_{int(time.time())}.json")
+        with open(batch_metadata_path, 'w') as f:
+            json.dump(batch_result, f, indent=4)
+    except Exception as e:
+        print(f"Error saving batch metadata: {e}")
+        batch_result["warning"] = f"Failed to save batch metadata: {str(e)}"
         
     return batch_result
