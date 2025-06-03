@@ -2,6 +2,7 @@ import gradio as gr
 import os
 import base64
 
+
 def generate_preview_html(file_paths):
     """
     Generate an HTML preview gallery for uploaded media files.
@@ -150,7 +151,7 @@ def generate_preview_html(file_paths):
     html += "</div>"
     return html
 
-def main_tab(upload_files, clear_uploads, restart_script, update_previews):
+def main_tab(upload_files, clear_uploads, restart_script, update_previews, open_uploads_folder):
     """
     Create the main tab of the interface.
     
@@ -161,10 +162,12 @@ def main_tab(upload_files, clear_uploads, restart_script, update_previews):
         clear_uploads: Function to clear the uploads directory
         restart_script: Function to restart the application
         update_previews: Function to refresh the list of uploaded files
+        open_uploads_folder: Function to open the uploads folder
         
     Returns:
         tuple: (file_input, preview_html, status) Gradio components
     """
+    
     with gr.Tab("Main"):
         gr.Markdown("### Upload Images and Videos")
         
@@ -176,6 +179,7 @@ def main_tab(upload_files, clear_uploads, restart_script, update_previews):
         with gr.Row():
             restart_btn = gr.Button("Restart", variant="stop", scale=1)
             clear_btn = gr.Button("Clear Uploads", variant="stop", scale=1)
+            upload_folder = gr.Button("Upload Folder", variant="", scale=1)
             upload_btn = gr.Button("Upload", variant="primary", scale=2)
         
         # Preview area
@@ -195,6 +199,12 @@ def main_tab(upload_files, clear_uploads, restart_script, update_previews):
             update_preview_html,
             inputs=[],
             outputs=[preview_html]
+        )
+        
+        upload_folder.click(
+            open_uploads_folder,
+            inputs=[],
+            outputs=[status]
         )
         
         clear_btn.click(

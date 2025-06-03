@@ -1,10 +1,9 @@
-import os
-
 # GPU optimization settings
 # os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'       # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
 # os.environ['TORCH_ALLOW_TF32_CUBLAS_OVERRIDE'] = '1'                  # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
 # os.environ['CUDA_MODULE_LOADING'] = 'LAZY'                            # See documentation: WORKFLOW.md -> # From Main_app.py -> GPU optimization settings
-
+import os
+import subprocess
 import sys
 import gradio as gr
 import shutil
@@ -19,6 +18,7 @@ from front_end.UI_finalize import finalize_tab
 from front_end.UI_nsfw import nsfw_tab
 from front_end.UI_pose import pose_tab
 from front_end.UI_video_tab import UI_video_tab
+
 
 # Define constants for image and video subdirectories
 IMAGES_SUBDIR = "images"
@@ -144,8 +144,19 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"
 UPLOADS_IMAGES_DIR = os.path.join(UPLOADS_DIR, IMAGES_SUBDIR)
 UPLOADS_VIDEOS_DIR = os.path.join(UPLOADS_DIR, VIDEOS_SUBDIR)
 
+def open_uploads_folder():
+    """Open the uploads folder in Windows Explorer and bring it to the front."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    folder = os.path.join(base_dir, "uploads")
+    if sys.platform == "win32":
+        # This brings the window to the front
+        subprocess.Popen(f'explorer /select,"{folder}"')
+        return "Opened uploads folder."
+    else:
+        return "This function only works on Windows."
+
 with gr.Blocks() as app:
-    main_tab(upload_files, clear_uploads, restart_script, update_previews)
+    main_tab(upload_files, clear_uploads, restart_script, update_previews, open_uploads_folder)
     face_tab(UPLOADS_IMAGES_DIR)  # Pass images directory to face tab
     UI_video_tab(UPLOADS_VIDEOS_DIR)  # Pass videos directory to video tab
     body_tab()
@@ -155,6 +166,8 @@ with gr.Blocks() as app:
     accessories_tab()
     nsfw_tab()
     finalize_tab()
+
+
 
 if __name__ == "__main__":
     # Create required directories
