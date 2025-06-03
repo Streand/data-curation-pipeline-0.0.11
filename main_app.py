@@ -149,8 +149,8 @@ def open_uploads_folder():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     folder = os.path.join(base_dir, "uploads")
     if sys.platform == "win32":
-        # This brings the window to the front
-        subprocess.Popen(f'explorer /select,"{folder}"')
+        # Open the folder directly without /select
+        subprocess.Popen(f'explorer "{folder}"')
         return "Opened uploads folder."
     else:
         return "This function only works on Windows."

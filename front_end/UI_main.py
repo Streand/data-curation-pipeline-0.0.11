@@ -179,7 +179,7 @@ def main_tab(upload_files, clear_uploads, restart_script, update_previews, open_
         with gr.Row():
             restart_btn = gr.Button("Restart", variant="stop", scale=1)
             clear_btn = gr.Button("Clear Uploads", variant="stop", scale=1)
-            upload_folder = gr.Button("Upload Folder", variant="", scale=1)
+            upload_folder = gr.Button("Upload Folder", variant="secondary", scale=1)
             upload_btn = gr.Button("Upload", variant="primary", scale=2)
         
         # Preview area
