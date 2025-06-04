@@ -5,12 +5,10 @@ import numpy as np
 import time
 import json
 from datetime import datetime
-import insightface  # Needed for FaceAnalysis import below
-from insightface.app import FaceAnalysis
-from concurrent.futures import ThreadPoolExecutor  # Removed unused as_completed
-import torch  # Needed for the get_device() function
+from insightface.app import FaceAnalysis  # Import only what we need
 import sys
 from typing import List, Dict  # Removed unused type imports
+from concurrent.futures import ThreadPoolExecutor  # Removed unused as_completed
 
 # Simple logger setup
 logging.basicConfig(level=logging.INFO)
@@ -65,7 +63,7 @@ class VideoProcessor:
             face_app = FaceAnalysis(name="buffalo_l", providers=[
                 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
             ])
-            face_app.prepare(ctx_id=0, det_size=(640, 640))
+            face_app.prepare(ctx_id=0, det_size=(1024, 1024))
             return face_app
         except Exception as e:
             print(f"Error initializing face detector: {e}")
@@ -339,7 +337,7 @@ class VideoProcessor:
             metadata_path = os.path.join(self.output_dir, f"{os.path.splitext(video_name)[0]}_metadata.json")
             try:
                 with open(metadata_path, 'w') as f:
-                    json.dump(result, f, indent=4)
+                    json.dump(result, f, indent=4, cls=NumpyEncoder)
             except Exception as e:
                 print(f"Error saving metadata to {metadata_path}: {e}")
                 
@@ -435,9 +433,23 @@ def process_batch(video_dir: str,
     try:
         batch_metadata_path = os.path.join(output_dir, f"batch_metadata_{int(time.time())}.json")
         with open(batch_metadata_path, 'w') as f:
-            json.dump(batch_result, f, indent=4)
+            json.dump(batch_result, f, indent=4, cls=NumpyEncoder)
     except Exception as e:
         print(f"Error saving batch metadata: {e}")
         batch_result["warning"] = f"Failed to save batch metadata: {str(e)}"
         
     return batch_result
+
+import json
+import numpy as np
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles NumPy types"""
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)

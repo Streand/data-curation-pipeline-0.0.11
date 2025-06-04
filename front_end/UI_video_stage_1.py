@@ -3,6 +3,8 @@ import gradio as gr
 import sys
 import time
 import subprocess
+import cv2
+import numpy as np
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipelines"))
 from pipelines.videostage1 import process_batch
@@ -24,7 +26,8 @@ def open_folder(folder_path):
 def UI_video_stage_1(video_dir=None):
     with gr.Tab("Video Stage 1") as tab:
         gr.Markdown("## Video Frame Extraction")
-        gr.Markdown("Extract all frames with faces from videos")
+        gr.Markdown("### Extract all frames with faces from videos")
+        gr.Markdown("<span style='color: var(--primary-500);'>Preview does not include all frames, only a sample for performance, full frames are saved to the output directory</span>")
 
         # Default directory if none provided
         if video_dir is None:
@@ -59,16 +62,16 @@ def UI_video_stage_1(video_dir=None):
             open_folder_btn = gr.Button("Open Output Folder", variant="secondary") 
             process_btn = gr.Button("Extract All Frames", variant="primary", size="lg")
         
-        # Gallery to display extracted frames with smaller thumbnails
+        # Gallery to display extracted frames
         gallery = gr.Gallery(
             label="Extracted Frames", 
             show_label=True,
-            columns=6,  # Increase from 3 to 6 images per row
-            height=400,  # Slightly reduce height to fit UI better
-            object_fit="cover",  # Change from "contain" to "cover" for better thumbnails
-            preview=True,  # Ensure clicking opens a larger view
-            allow_preview=True,  # Explicitly allow preview
-            elem_id="frame_gallery"  # Add ID for potential custom styling
+            columns=6,
+            height=400,
+            object_fit="cover",
+            preview=True,
+            allow_preview=True,
+            elem_id="frame_gallery"
         )
         
         # Result information
@@ -84,13 +87,13 @@ def UI_video_stage_1(video_dir=None):
                 print(f"Refresh detected {len(new_video_files)} videos in {video_dir}")
                 
                 status_msg = f"Found {len(new_video_files)} videos in directory"
-                if not len(new_video_files):
+                if not new_video_files:
                     status_msg = "No videos found"
                 
                 return status_msg
             return f"Video directory not found: {video_dir}"
         
-        # Function to process videos - simplified to always extract all frames
+        # Function to process videos - SIMPLIFIED to reliably extract frames
         def process_videos(interval):
             try:
                 start_time = time.time()
@@ -103,39 +106,81 @@ def UI_video_stage_1(video_dir=None):
                 if video_count == 0:
                     return [], {"error": "No videos found in directory"}, "No videos found in directory"
                 
-                # Process all videos - use simplified parameters
+                # Process all videos with more permissive parameters
                 result = process_batch(
                     video_dir,
                     output_dir=output_dir, 
                     frame_interval=interval,
-                    max_frames=9999,               # Set very high to get all frames
+                    max_frames=10000,              # Very high to get all frames
                     min_distance=1,                # No minimum distance between frames
-                    face_confidence_threshold=0.5, # Low threshold to accept most faces
-                    sharpness_threshold=10,        # Low threshold for sharpness
-                    extract_all_good_frames=True   # Always extract all frames that pass thresholds
+                    face_confidence_threshold=0.1, # Very low threshold to accept most faces
+                    sharpness_threshold=1,         # Very low threshold for sharpness
+                    extract_all_good_frames=True   # Extract all frames that pass the minimal thresholds
                 )
                 
-                # Get ALL processed frames for gallery (no limits)
+                # Display frames with face detection overlays
                 gallery_items = []
+
+                # Create overlay directory
+                overlay_dir = os.path.join(output_dir, "overlay_preview")
+                os.makedirs(overlay_dir, exist_ok=True)
+
                 if "results" in result and result["results"]:
                     for video_result in result["results"]:
                         if "best_frames" in video_result and video_result["best_frames"]:
                             video_name = os.path.basename(video_result.get("video", "unknown"))
-                            # Show ALL frames from the video (removed the [:4] limit)
-                            for frame in video_result["best_frames"]:
-                                if "path" in frame:
-                                    frame_num = frame.get("frame_num", "?")
-                                    gallery_items.append((frame["path"], f"{video_name} - Frame {frame_num}"))
-                            # Removed the break condition that limited to 12 frames total
-
+                            
+                            # Take up to the first 10 frames from each video for preview
+                            for frame in video_result["best_frames"][:10]:
+                                if "path" in frame and "faces" in frame:
+                                    frame_path = frame["path"]
+                                    frame_num = frame.get("frame_num", "unknown")
+                                    
+                                    # Create overlay image
+                                    overlay_path = os.path.join(overlay_dir, f"overlay_{os.path.basename(frame_path)}")
+                                    
+                                    # Generate the overlay image
+                                    try:
+                                        # Create face overlay using the existing function
+                                        img = cv2.imread(frame_path)
+                                        if img is not None:
+                                            # Draw detection overlays
+                                            for face in frame["faces"]:
+                                                # Access bbox as dictionary
+                                                if "bbox" in face:
+                                                    bbox = face["bbox"]
+                                                    if isinstance(bbox, list) and len(bbox) >= 4:
+                                                        x1, y1, x2, y2 = [int(coord) for coord in bbox]
+                                                        
+                                                        # Draw rectangle
+                                                        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                                        
+                                                        # Display confidence score
+                                                        score = round(face.get("score", 0), 3)
+                                                        cv2.putText(img, f"{score}", (x1, y1-10),
+                                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                            
+                                            # Save overlay image
+                                            cv2.imwrite(overlay_path, img)
+                                            
+                                            # Use the overlay in gallery
+                                            gallery_items.append((overlay_path, f"{video_name} - Frame {frame_num}"))
+                                        else:
+                                            # Fallback to original image
+                                            gallery_items.append((frame_path, f"{video_name} - Frame {frame_num}"))
+                                    except Exception as e:
+                                        print(f"Error creating overlay for {frame_path}: {str(e)}")
+                                        # Fallback to original image
+                                        gallery_items.append((frame_path, f"{video_name} - Frame {frame_num}"))
+                                    
+                                    # Limit gallery items to prevent UI slowdown
+                                    if len(gallery_items) >= 50:
+                                        break
+                
                 elapsed = time.time() - start_time
                 total_frames = sum(len(r.get("best_frames", [])) for r in result.get("results", []))
                 status_msg = f"Processed {result.get('total_videos', 0)} videos in {elapsed:.2f} seconds. "
                 status_msg += f"Extracted {total_frames} frames. Saved to {output_dir}"
-                
-                # Warning if there are many frames
-                if len(gallery_items) > 50:
-                    status_msg += f"\nShowing all {len(gallery_items)} frames in preview (may be slow)"
                 
                 return gallery_items, result, status_msg
                 
@@ -175,3 +220,47 @@ def UI_video_stage_1(video_dir=None):
         )
         
         return tab
+
+def create_face_overlay(image_path, face_data):
+    """
+    Create a copy of the image with face detection overlays.
+    
+    Args:
+        image_path: Path to the original image
+        face_data: Face detection data from InsightFace
+        
+    Returns:
+        Image with face detection overlays
+    """
+    # Read the original image
+    img = cv2.imread(image_path)
+    if img is None:
+        return None
+    
+    # Draw bbox around each face
+    for face in face_data:
+        # Extract bbox coordinates and convert to integers
+        bbox = face.get('bbox')
+        if not bbox:
+            continue
+        
+        x1, y1, x2, y2 = [int(coord) for coord in bbox]
+        
+        # Draw rectangle around face
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
+        # Add confidence score text
+        score = face.get('det_score', 0)
+        cv2.putText(img, f"{score:.2f}", (x1, y1-10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        
+        # Draw facial landmarks if available
+        landmarks = face.get('landmark_2d_106')
+        if landmarks is not None:
+            for point in landmarks:
+                x, y = int(point[0]), int(point[1])
+                cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+    
+    # Convert from BGR to RGB for Gradio display
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img_rgb
