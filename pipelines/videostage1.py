@@ -234,25 +234,37 @@ class VideoProcessor:
     def select_best_frames(self, 
                            frames_info: List[Dict], 
                            max_frames: int = 10, 
-                           min_distance: int = 30) -> List[Dict]:
+                           min_distance: int = 30,
+                           extract_all_good_frames: bool = False) -> List[Dict]:
         """
-        Select the best frames based on face confidence and sharpness.
+        Select frames based on face confidence and sharpness.
         
         Args:
             frames_info: List of frame information dictionaries
-            max_frames: Maximum number of frames to select
-            min_distance: Minimum frame distance between selected frames
+            max_frames: Maximum number of frames to select (if extract_all_good_frames is False)
+            min_distance: Minimum frame distance between selected frames (if extract_all_good_frames is False)
+            extract_all_good_frames: If True, return all valid frames without max limit or distance filtering
         
         Returns:
-            List of selected best frames
+            List of selected frames
         """
         # Filter frames that have faces and a path (saved frames)
         valid_frames = [frame for frame in frames_info if frame.get("face_count", 0) > 0 and "path" in frame]
         
         if not valid_frames:
             return []
+        
+        # If we want all good frames, just calculate scores and return all
+        if extract_all_good_frames:
+            # Calculate scores for all valid frames
+            for frame in valid_frames:
+                frame["score"] = frame.get("max_face_score", 0) * 0.7 + frame.get("sharpness", 0) / 500.0 * 0.3
             
-        # Sort frames by face score and sharpness
+            # Sort by frame number for consistent ordering
+            valid_frames.sort(key=lambda x: x.get("frame_num", 0))
+            return valid_frames
+                
+        # Original behavior for selecting best frames with spacing and limits
         scored_frames = [(
             frame,
             frame.get("max_face_score", 0) * 0.7 + frame.get("sharpness", 0) / 500.0 * 0.3
@@ -283,15 +295,17 @@ class VideoProcessor:
                       video_path: str, 
                       frame_interval: int = 30, 
                       max_frames: int = 10, 
-                      min_distance: int = 30) -> Dict:
+                      min_distance: int = 30,
+                      extract_all_good_frames: bool = False) -> Dict:
         """
-        Process a video to extract the best frames.
+        Process a video to extract frames.
         
         Args:
             video_path: Path to the video file
             frame_interval: Extract every nth frame
-            max_frames: Maximum number of frames to return
+            max_frames: Maximum number of frames to return (if not extract_all_good_frames)
             min_distance: Minimum frame distance between selected frames
+            extract_all_good_frames: If True, extract all frames that pass quality thresholds
             
         Returns:
             Dictionary with processing results
@@ -303,11 +317,12 @@ class VideoProcessor:
             # Extract frames from video
             extracted_frames = self.extract_frames(video_path, frame_interval)
             
-            # Select the best frames
+            # Select frames (either all good ones or just the best ones)
             best_frames = self.select_best_frames(
                 extracted_frames, 
                 max_frames=max_frames, 
-                min_distance=min_distance
+                min_distance=min_distance,
+                extract_all_good_frames=extract_all_good_frames
             )
             
             # Prepare result
@@ -343,12 +358,13 @@ class VideoProcessor:
 
 
 def process_batch(video_dir: str, 
-                  output_dir: str = None, 
-                  frame_interval: int = 30,
-                  max_frames: int = 10,
-                  min_distance: int = 30,
-                  face_confidence_threshold: float = FACE_CONFIDENCE_THRESHOLD,
-                  sharpness_threshold: float = SHARPNESS_THRESHOLD) -> Dict:
+                 output_dir: str = None, 
+                 frame_interval: int = 30,
+                 max_frames: int = 10,
+                 min_distance: int = 30,
+                 face_confidence_threshold: float = FACE_CONFIDENCE_THRESHOLD,
+                 sharpness_threshold: float = SHARPNESS_THRESHOLD,
+                 extract_all_good_frames: bool = False) -> Dict:
     """
     Process a batch of videos in a directory.
     
@@ -356,10 +372,11 @@ def process_batch(video_dir: str,
         video_dir: Directory containing video files
         output_dir: Directory to save extracted frames (if None, uses video_dir/frames)
         frame_interval: Extract every nth frame
-        max_frames: Maximum number of frames to return per video
+        max_frames: Maximum number of frames to return per video (if not extract_all_good_frames)
         min_distance: Minimum frame distance between selected frames
         face_confidence_threshold: Minimum confidence for face detection
         sharpness_threshold: Minimum sharpness threshold
+        extract_all_good_frames: If True, extract all good frames without applying max_frames limit
         
     Returns:
         Dictionary with processing results for all videos
@@ -392,15 +409,17 @@ def process_batch(video_dir: str,
     
     # Process each video
     results = []
-    for video_file in video_files:
+    # Fixed: Use enumerate instead of video_files.index() for better performance
+    for i, video_file in enumerate(video_files):
         video_path = os.path.join(video_dir, video_file)
-        print(f"Processing video {video_file} ({video_files.index(video_file) + 1}/{len(video_files)})")
+        print(f"Processing video {video_file} ({i + 1}/{len(video_files)})")
         
         result = processor.process_video(
             video_path, 
             frame_interval=frame_interval,
             max_frames=max_frames,
-            min_distance=min_distance
+            min_distance=min_distance,
+            extract_all_good_frames=extract_all_good_frames
         )
         
         results.append(result)
