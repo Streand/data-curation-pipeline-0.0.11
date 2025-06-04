@@ -407,9 +407,11 @@ def process_batch(video_dir: str,
     
     # Process each video
     results = []
-    # Fixed: Use enumerate instead of video_files.index() for better performance
+    total_videos = len(video_files)
+    
     for i, video_file in enumerate(video_files):
         video_path = os.path.join(video_dir, video_file)
+        
         print(f"Processing video {video_file} ({i + 1}/{len(video_files)})")
         
         result = processor.process_video(

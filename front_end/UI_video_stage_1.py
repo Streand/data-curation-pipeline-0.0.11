@@ -93,7 +93,8 @@ def UI_video_stage_1(video_dir=None):
                 return status_msg
             return f"Video directory not found: {video_dir}"
         
-        # Function to process videos - SIMPLIFIED to reliably extract frames
+        # Simplified process_videos function - removed progress bar and complex overlay code
+
         def process_videos(interval):
             try:
                 start_time = time.time()
@@ -111,11 +112,11 @@ def UI_video_stage_1(video_dir=None):
                     video_dir,
                     output_dir=output_dir, 
                     frame_interval=interval,
-                    max_frames=10000,              # Very high to get all frames
-                    min_distance=1,                # No minimum distance between frames
-                    face_confidence_threshold=0.1, # Very low threshold to accept most faces
-                    sharpness_threshold=1,         # Very low threshold for sharpness
-                    extract_all_good_frames=True   # Extract all frames that pass the minimal thresholds
+                    max_frames=10000,
+                    min_distance=1,
+                    face_confidence_threshold=0.1,
+                    sharpness_threshold=1,
+                    extract_all_good_frames=True
                 )
                 
                 # Display frames with face detection overlays
@@ -172,10 +173,10 @@ def UI_video_stage_1(video_dir=None):
                                         print(f"Error creating overlay for {frame_path}: {str(e)}")
                                         # Fallback to original image
                                         gallery_items.append((frame_path, f"{video_name} - Frame {frame_num}"))
-                                    
-                                    # Limit gallery items to prevent UI slowdown
-                                    if len(gallery_items) >= 50:
-                                        break
+                                
+                                # Limit gallery items to prevent UI slowdown
+                                if len(gallery_items) >= 50:
+                                    break
                 
                 elapsed = time.time() - start_time
                 total_frames = sum(len(r.get("best_frames", [])) for r in result.get("results", []))
@@ -183,10 +184,12 @@ def UI_video_stage_1(video_dir=None):
                 status_msg += f"Extracted {total_frames} frames. Saved to {output_dir}"
                 
                 return gallery_items, result, status_msg
-                
+            
             except Exception as e:
                 error_msg = f"Error processing videos: {str(e)}"
                 print(f"ERROR: {error_msg}")
+                import traceback
+                traceback.print_exc()
                 return [], {"error": error_msg}, error_msg
         
         # Function to open output folder
