@@ -5,6 +5,7 @@ import time
 import subprocess
 import cv2
 import numpy as np
+import tempfile
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipelines"))
 from pipelines.videostage1 import process_batch
@@ -49,12 +50,31 @@ def UI_video_stage_1(video_dir=None):
         with gr.Row():
             status = gr.Markdown(f"Found {len(video_files)} videos in directory" if video_files else "No videos found")
         
-        # Simple controls - just frame interval and a checkbox for all frames
+        # Basic controls
         with gr.Row():
-            frame_interval = gr.Slider(
-                minimum=1, maximum=30, value=5, step=1,
-                label="Frame Interval (process every Nth frame, lower = more frames)"
-            )
+            with gr.Column(scale=1):
+                frame_interval = gr.Slider(
+                    minimum=1, maximum=30, value=5, step=1,
+                    label="Frame Interval (process every Nth frame, lower = more frames)"
+                )
+        
+        # Face recognition section
+        with gr.Row():
+            gr.Markdown("### Face Recognition (Optional)")
+        
+        with gr.Row():
+            with gr.Column(scale=1):
+                reference_face = gr.Image(
+                    label="Reference Face Image (Optional)",
+                    type="filepath"
+                )
+            with gr.Column(scale=1):
+                similarity_threshold = gr.Slider(
+                    minimum=0.4, maximum=0.95, value=0.6, step=0.01,
+                    label="Face Similarity Threshold",
+                    info="Higher values require closer matches (more strict)"
+                )
+                gr.Markdown("Set similarity threshold higher to be more strict (fewer matches) or lower to be more lenient (more matches)")
         
         # Buttons
         with gr.Row():
@@ -93,11 +113,11 @@ def UI_video_stage_1(video_dir=None):
                 return status_msg
             return f"Video directory not found: {video_dir}"
         
-        # Simplified process_videos function - removed progress bar and complex overlay code
-
-        def process_videos(interval):
+        # Updated process_videos function with face recognition support
+        def process_videos(interval, ref_face_path, similarity_thresh):
             try:
                 start_time = time.time()
+                temp_file = None
                 
                 if not os.path.exists(video_dir):
                     return [], {"error": f"Video directory not found: {video_dir}"}, f"Video directory not found: {video_dir}"
@@ -107,7 +127,7 @@ def UI_video_stage_1(video_dir=None):
                 if video_count == 0:
                     return [], {"error": "No videos found in directory"}, "No videos found in directory"
                 
-                # Process all videos with more permissive parameters
+                # Process all videos with face recognition if reference face provided
                 result = process_batch(
                     video_dir,
                     output_dir=output_dir, 
@@ -116,7 +136,9 @@ def UI_video_stage_1(video_dir=None):
                     min_distance=1,
                     face_confidence_threshold=0.1,
                     sharpness_threshold=1,
-                    extract_all_good_frames=True
+                    extract_all_good_frames=True,
+                    reference_face_path=ref_face_path,
+                    similarity_threshold=similarity_thresh if ref_face_path else 0.0
                 )
                 
                 # Display frames with face detection overlays
@@ -153,13 +175,37 @@ def UI_video_stage_1(video_dir=None):
                                                     if isinstance(bbox, list) and len(bbox) >= 4:
                                                         x1, y1, x2, y2 = [int(coord) for coord in bbox]
                                                         
-                                                        # Draw rectangle
-                                                        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                                        # Draw rectangle - green for high similarity, yellow otherwise
+                                                        color = (0, 255, 0)  # Default green
+                                                        
+                                                        # If we have similarity data, color-code it
+                                                        if "reference_similarity" in face:
+                                                            similarity = face["reference_similarity"]
+                                                            # Create color gradient based on similarity
+                                                            if similarity >= similarity_thresh:
+                                                                # Higher similarity (green to yellow)
+                                                                green = 255
+                                                                blue = 0
+                                                                red = int(255 * (1 - (similarity - similarity_thresh)/(1 - similarity_thresh)))
+                                                            else:
+                                                                # Lower similarity (yellow to red)
+                                                                red = 255
+                                                                green = int(255 * similarity/similarity_thresh)
+                                                                blue = 0
+                                                                
+                                                            color = (blue, green, red)  # BGR format for OpenCV
+                                                            
+                                                            # Add similarity score to the display
+                                                            cv2.putText(img, f"Sim: {similarity:.2f}", 
+                                                                      (x1, y1-30),
+                                                                      cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                                                        
+                                                        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
                                                         
                                                         # Display confidence score
                                                         score = round(face.get("score", 0), 3)
                                                         cv2.putText(img, f"{score}", (x1, y1-10),
-                                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
                                             
                                             # Save overlay image
                                             cv2.imwrite(overlay_path, img)
@@ -180,8 +226,12 @@ def UI_video_stage_1(video_dir=None):
                 
                 elapsed = time.time() - start_time
                 total_frames = sum(len(r.get("best_frames", [])) for r in result.get("results", []))
+                
                 status_msg = f"Processed {result.get('total_videos', 0)} videos in {elapsed:.2f} seconds. "
                 status_msg += f"Extracted {total_frames} frames. Saved to {output_dir}"
+                
+                if ref_face_path:
+                    status_msg += f". Face recognition enabled with threshold {similarity_thresh:.2f}"
                 
                 return gallery_items, result, status_msg
             
@@ -211,7 +261,7 @@ def UI_video_stage_1(video_dir=None):
         
         process_btn.click(
             fn=process_videos,
-            inputs=[frame_interval],
+            inputs=[frame_interval, reference_face, similarity_threshold],
             outputs=[gallery, result_json, status]
         )
         
@@ -250,12 +300,30 @@ def create_face_overlay(image_path, face_data):
         x1, y1, x2, y2 = [int(coord) for coord in bbox]
         
         # Draw rectangle around face
-        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        color = (0, 255, 0)  # Default green
+        
+        # If similarity score is available, use color coding
+        if "reference_similarity" in face:
+            similarity = face["reference_similarity"]
+            if similarity >= 0.7:  # High similarity
+                color = (0, 255, 0)  # Green
+            elif similarity >= 0.5:  # Medium similarity
+                color = (0, 255, 255)  # Yellow
+            else:  # Low similarity
+                color = (0, 0, 255)  # Red
+                
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
         
         # Add confidence score text
-        score = face.get('det_score', 0)
+        score = face.get('score', 0)
         cv2.putText(img, f"{score:.2f}", (x1, y1-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        
+        # Add similarity score if available
+        if "reference_similarity" in face:
+            similarity = face["reference_similarity"]
+            cv2.putText(img, f"Sim: {similarity:.2f}", (x1, y1-30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
         # Draw facial landmarks if available
         landmarks = face.get('landmark_2d_106')
