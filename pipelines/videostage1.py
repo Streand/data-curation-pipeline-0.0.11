@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from insightface.app import FaceAnalysis  # Import only what we need
 import sys
-from typing import List, Dict  # Removed unused type imports
+from typing import List, Dict, Optional  # Added Optional
 from concurrent.futures import ThreadPoolExecutor  # Removed unused as_completed
 
 # Simple logger setup
@@ -356,7 +356,7 @@ class VideoProcessor:
 
 
 def process_batch(video_dir: str, 
-                 output_dir: str = None, 
+                 output_dir: Optional[str] = None, 
                  frame_interval: int = 30,
                  max_frames: int = 10,
                  min_distance: int = 30,
@@ -403,7 +403,7 @@ def process_batch(video_dir: str,
     
     # Update thresholds on the processor instance
     processor.face_confidence_threshold = face_confidence_threshold
-    processor.sharpness_threshold = sharpness_threshold
+    processor.sharpness_threshold = int(sharpness_threshold)  # Convert to int
     
     # Process each video
     results = []
@@ -447,11 +447,11 @@ import numpy as np
 
 class NumpyEncoder(json.JSONEncoder):
     """JSON encoder that handles NumPy types"""
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super(NumpyEncoder, self).default(obj)
+    def default(self, o):  # Changed parameter name from 'obj' to 'o' to match parent class
+        if isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, np.floating):
+            return float(o)
+        elif isinstance(o, np.ndarray):
+            return o.tolist()
+        return super(NumpyEncoder, self).default(o)
