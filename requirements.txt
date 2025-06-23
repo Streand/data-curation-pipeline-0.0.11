@@ -27,6 +27,12 @@ scikit-learn
 scikit-image
 dlib
 onnx
+transformers>=4.30.0
+nudenet
+mediapipe
 
 tensorflow>=2.8.0
 tensorflow-hub>=0.12.0
+
+
+

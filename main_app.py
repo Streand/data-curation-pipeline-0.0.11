@@ -158,7 +158,8 @@ def open_uploads_folder():
 with gr.Blocks() as app:
     main_tab(upload_files, clear_uploads, restart_script, update_previews, open_uploads_folder)
     face_tab(UPLOADS_IMAGES_DIR)  # Pass images directory to face tab
-    UI_video_tab(UPLOADS_VIDEOS_DIR)  # Pass videos directory to video tab
+    with gr.Tab("Video Processing"):
+        UI_video_tab()  # Pass videos directory to video tab
     body_tab()
     pose_tab()
     camera_tab()

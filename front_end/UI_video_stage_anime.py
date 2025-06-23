@@ -20,7 +20,6 @@ def UI_video_stage_anime(video_dir=None):
         output_dir = os.path.join(base_dir, "store_images", "video_stage_anime")
         os.makedirs(output_dir, exist_ok=True)
         
-        # Controls, buttons, etc. similar to UI_video_stage_1.py
         # Status display
         status = gr.Markdown(f"Ready to process anime videos")
         
@@ -29,6 +28,25 @@ def UI_video_stage_anime(video_dir=None):
             frame_interval = gr.Slider(
                 minimum=1, maximum=30, value=3, step=1,
                 label="Frame Interval (process every Nth frame)"
+            )
+        
+        # Character reference selection
+        with gr.Row():
+            gr.Markdown("### Character Selection (Optional)")
+            gr.Markdown("Upload a reference image of the character you want to extract")
+        
+        with gr.Row():
+            reference_char = gr.Image(
+                label="Reference Character Image",
+                type="filepath",
+                value=None
+            )
+        
+        with gr.Row():
+            similarity_threshold = gr.Slider(
+                minimum=0.3, maximum=0.9, value=0.6, step=0.05,
+                label="Character Similarity Threshold",
+                info="Lower = more lenient matching, Higher = stricter matching"
             )
         
         # Process button
@@ -47,14 +65,16 @@ def UI_video_stage_anime(video_dir=None):
         # Results display
         result_json = gr.JSON(label="Processing Results")
         
-        # Process function (implement in videostageanime.py)
-        def process_anime_videos(interval):
+        # Process function
+        def process_anime_videos(interval, ref_char_path, sim_threshold):
             try:
                 # Call the function from videostageanime.py
                 results = process_anime_batch(
                     video_dir,
                     output_dir=output_dir,
-                    frame_interval=interval
+                    frame_interval=interval,
+                    reference_char=ref_char_path,
+                    similarity_threshold=sim_threshold
                 )
                 
                 # Extract frames for gallery display
@@ -64,9 +84,16 @@ def UI_video_stage_anime(video_dir=None):
                         if "frames" in video_result:
                             for frame in video_result["frames"][:20]:  # Limit display
                                 if "path" in frame:
-                                    gallery_items.append((frame["path"], f"Score: {frame.get('score', 0):.2f}"))
+                                    label = f"Score: {frame.get('score', 0):.2f}"
+                                    if "character_similarity" in frame:
+                                        label += f", Char Match: {frame.get('character_similarity', 0):.2f}"
+                                    gallery_items.append((frame["path"], label))
                 
-                return gallery_items, results, f"Processed {results.get('total_videos', 0)} anime videos"
+                status_msg = f"Processed {results.get('total_videos', 0)} anime videos"
+                if ref_char_path:
+                    status_msg += f" with character filtering (threshold: {sim_threshold:.2f})"
+                    
+                return gallery_items, results, status_msg
                 
             except Exception as e:
                 return [], {"error": str(e)}, f"Error processing anime videos: {str(e)}"
@@ -74,7 +101,7 @@ def UI_video_stage_anime(video_dir=None):
         # Connect event handler
         process_btn.click(
             fn=process_anime_videos,
-            inputs=[frame_interval],
+            inputs=[frame_interval, reference_char, similarity_threshold],
             outputs=[gallery, result_json, status]
         )
         
