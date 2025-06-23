@@ -7,9 +7,8 @@ import json
 from datetime import datetime
 from insightface.app import FaceAnalysis  # Import only what we need
 import sys
-from typing import List, Dict, Optional  # Added Optional
+from typing import List, Dict, Optional, Any  # Removed unused Union
 from concurrent.futures import ThreadPoolExecutor  # Removed unused as_completed
-import matplotlib.pyplot as plt
 from PIL import Image
 
 # Simple logger setup
@@ -33,7 +32,8 @@ class VideoProcessor:
     using OpenCV and InsightFace.
     """
     
-    def __init__(self, output_dir: str, use_gpu: bool = True, reference_face_path: Optional[str] = None) -> None:
+    def __init__(self, output_dir: str, use_gpu: bool = True, 
+                 reference_face_path: Optional[str] = None) -> None:
         """
         Initialize the VideoProcessor.
         
@@ -58,6 +58,7 @@ class VideoProcessor:
         # Store current thresholds (these will be updated from process_batch)
         self.face_confidence_threshold = FACE_CONFIDENCE_THRESHOLD
         self.sharpness_threshold = SHARPNESS_THRESHOLD
+        self.similarity_threshold = 0.6  # Add default similarity threshold
         
         # Reference face embedding
         self.reference_face_embedding = None
@@ -107,7 +108,7 @@ class VideoProcessor:
         lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
         return lap_var
 
-    def detect_faces(self, frame: np.ndarray) -> List[Dict]:
+    def detect_faces(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """
         Detect faces in a frame using InsightFace.
         
@@ -154,14 +155,14 @@ class VideoProcessor:
             print(f"Face detection error: {e}")
             return []
 
-    def extract_frames(self, video_path: str, frame_interval: int = 30) -> List[Dict]:
+    def extract_frames(self, video_path: str, frame_interval: int = 30) -> List[Dict[str, Any]]:
         """
         Extract frames from a video file at specified intervals.
         
         Args:
             video_path: Path to the video file
             frame_interval: Extract every nth frame
-        
+    
         Returns:
             List of frame information dictionaries
         """
@@ -200,6 +201,11 @@ class VideoProcessor:
             if not ret:
                 break
                 
+            # Initialize frame_info for each frame
+            frame_info: Dict[str, Any] = {
+                "frame_num": frame_count
+            }
+            
             if frame_count % frame_interval == 0:
                 # Process this frame
                 sharpness = self.compute_sharpness(frame)
@@ -208,18 +214,21 @@ class VideoProcessor:
                 # Get highest face score if faces detected
                 max_face_score = max([face["score"] for face in faces], default=0.0)
                 
-                # Save basic frame info
-                frame_info = {
-                    "frame_num": frame_count,
+                # Update frame info
+                frame_info.update({
                     "sharpness": sharpness,
                     "faces": faces,
                     "face_count": len(faces),
                     "max_face_score": max_face_score
-                }
+                })
                 
-                # Use the instance thresholds which are set by process_batch
-                # Save quality frames with faces that pass our threshold
-                if faces and max_face_score >= self.face_confidence_threshold and sharpness >= self.sharpness_threshold:
+                # Check if frame has good faces
+                has_good_faces = (faces and 
+                                 max_face_score >= self.face_confidence_threshold and 
+                                 sharpness >= self.sharpness_threshold)
+                
+                # Save frame if it has good faces
+                if has_good_faces:
                     frame_filename = f"{video_name}_{frame_count:06d}.jpg"
                     frame_path = os.path.join(frame_dir, frame_filename)
                     
@@ -231,15 +240,12 @@ class VideoProcessor:
                         print(f"Error saving frame to {frame_path}: {e}")
                 
                 frames_info.append(frame_info)
-                
-            frame_count += 1
             
-            # Show progress every 100 frames
-            if frame_count % 100 == 0:
-                elapsed = time.time() - start_time
-                fps_processing = frame_count / elapsed if elapsed > 0 else 0
-                print(f"Processed {frame_count}/{total_frames} frames ({frame_count/total_frames*100:.1f}%) " 
-                      f"- {fps_processing:.1f} FPS - Found {extracted_count} good frames")
+            frame_count += 1  # Don't forget to increment frame_count
+            
+            # Log progress occasionally
+            if frame_count % 1000 == 0:
+                print(f"Processed {frame_count} frames from {os.path.basename(video_path)}")
         
         cap.release()
         
@@ -250,29 +256,37 @@ class VideoProcessor:
         return frames_info
 
     def select_best_frames(self, 
-                           frames_info: List[Dict], 
+                           frames_info: List[Dict[str, Any]], 
                            max_frames: int = 10, 
                            min_distance: int = 30,
                            extract_all_good_frames: bool = False,
-                           similarity_threshold: float = 0.6) -> List[Dict]:
+                           similarity_threshold: Optional[float] = None) -> List[Dict[str, Any]]:
         """
-        Select frames based on face confidence, sharpness, and similarity to reference face.
+        Select frames based on face confidence, sharpness, and similarity.
         
         Args:
             frames_info: List of frame information dictionaries
-            max_frames: Maximum number of frames to select (if extract_all_good_frames is False)
+            max_frames: Maximum number of frames to select
             min_distance: Minimum frame distance between selected frames
-            extract_all_good_frames: If True, return all valid frames without max limit or distance filtering
-            similarity_threshold: Minimum similarity to reference face (0-1)
+            extract_all_good_frames: If True, return all valid frames
+            similarity_threshold: Minimum similarity threshold for face matching
         
         Returns:
             List of selected frames
         """
-        # Filter frames that have faces and a path (saved frames)
-        valid_frames = [frame for frame in frames_info if frame.get("face_count", 0) > 0 and "path" in frame]
+        # Use instance threshold if none provided as parameter
+        if similarity_threshold is None:
+            similarity_threshold = self.similarity_threshold
+            
+        # First, filter frames that have been saved (have a path)
+        saved_frames = [frame for frame in frames_info if "path" in frame]
         
-        if not valid_frames:
+        if not saved_frames:
             return []
+        
+        # Require faces
+        valid_frames = [frame for frame in saved_frames 
+                       if frame.get("face_count", 0) > 0]
         
         # If we have a reference face, filter frames by similarity
         if self.reference_face_embedding is not None:
@@ -285,28 +299,29 @@ class VideoProcessor:
                         max_similarity = similarity
                 frame["reference_similarity"] = max_similarity
             
-            # Filter frames with sufficient similarity
+            # Filter frames with sufficient similarity using the passed threshold
             valid_frames = [frame for frame in valid_frames 
                             if frame.get("reference_similarity", 0) >= similarity_threshold]
             
-        # If we want all good frames, just calculate scores and return all
-        if extract_all_good_frames:
-            # Calculate scores for all valid frames
-            for frame in valid_frames:
-                # Base score
-                base_score = frame.get("max_face_score", 0) * 0.4 + frame.get("sharpness", 0) / 500.0 * 0.3
-                
-                # Add similarity component if available
-                if "reference_similarity" in frame:
-                    frame["score"] = base_score + frame.get("reference_similarity", 0) * 0.3
-                else:
-                    frame["score"] = base_score
+        # Calculate scores
+        for frame in valid_frames:
+            # Regular scoring
+            base_score = frame.get("max_face_score", 0) * 0.4 + frame.get("sharpness", 0) / 500.0 * 0.3
             
-            # Sort by score for consistent ordering
-            valid_frames.sort(key=lambda x: x.get("score", 0), reverse=True)
-            return valid_frames
+            # Add similarity component if available
+            if "reference_similarity" in frame:
+                base_score += frame.get("reference_similarity", 0) * 0.3
                 
-        # Original behavior for selecting best frames with spacing and limits
+            frame["score"] = base_score
+        
+        # Sort by score for consistent ordering
+        valid_frames.sort(key=lambda x: x.get("score", 0), reverse=True)
+        
+        # If extracting all good frames, return all
+        if extract_all_good_frames:
+            return valid_frames
+            
+        # Otherwise select frames with minimum distance between them
         scored_frames = []
         for frame in valid_frames:
             # Base score
@@ -346,7 +361,7 @@ class VideoProcessor:
                       frame_interval: int = 30, 
                       max_frames: int = 10, 
                       min_distance: int = 30,
-                      extract_all_good_frames: bool = False) -> Dict:
+                      extract_all_good_frames: bool = False) -> Dict[str, Any]:
         """
         Process a video to extract frames.
         
@@ -365,14 +380,18 @@ class VideoProcessor:
         
         try:
             # Extract frames from video
-            extracted_frames = self.extract_frames(video_path, frame_interval)
+            extracted_frames = self.extract_frames(
+                video_path, 
+                frame_interval=frame_interval
+            )
             
             # Select frames (either all good ones or just the best ones)
             best_frames = self.select_best_frames(
                 extracted_frames, 
                 max_frames=max_frames, 
                 min_distance=min_distance,
-                extract_all_good_frames=extract_all_good_frames
+                extract_all_good_frames=extract_all_good_frames,
+                similarity_threshold=self.similarity_threshold  # Pass the similarity threshold
             )
             
             # Prepare result
@@ -484,7 +503,7 @@ def process_batch(video_dir: str,
                  sharpness_threshold: float = SHARPNESS_THRESHOLD,
                  extract_all_good_frames: bool = False,
                  reference_face_path: Optional[str] = None,
-                 similarity_threshold: float = 0.6) -> Dict:
+                 similarity_threshold: float = 0.6) -> Dict[str, Any]:
     """
     Process a batch of videos in a directory.
     
@@ -492,11 +511,11 @@ def process_batch(video_dir: str,
         video_dir: Directory containing video files
         output_dir: Directory to save extracted frames (if None, uses video_dir/frames)
         frame_interval: Extract every nth frame
-        max_frames: Maximum number of frames to return per video (if not extract_all_good_frames)
+        max_frames: Maximum number of frames to return per video
         min_distance: Minimum frame distance between selected frames
         face_confidence_threshold: Minimum confidence for face detection
         sharpness_threshold: Minimum sharpness threshold
-        extract_all_good_frames: If True, extract all good frames without applying max_frames limit
+        extract_all_good_frames: If True, extract all good frames
         reference_face_path: Path to reference face image for matching
         similarity_threshold: Minimum similarity threshold for face matching
         
@@ -523,15 +542,20 @@ def process_batch(video_dir: str,
         return {"error": f"No video files found in {video_dir}", "total_videos": 0, "results": []}
     
     # Initialize processor
-    processor = VideoProcessor(output_dir=output_dir, reference_face_path=reference_face_path)
+    processor = VideoProcessor(
+        output_dir=output_dir, 
+        reference_face_path=reference_face_path
+    )
     
-    # Update thresholds on the processor instance
+    # Update processor thresholds
     processor.face_confidence_threshold = face_confidence_threshold
     processor.sharpness_threshold = int(sharpness_threshold)
+    processor.similarity_threshold = similarity_threshold  # Store similarity threshold
     
-    # Process each video
+    # Process each video with updated parameters
     results = []
-    _total_videos = len(video_files)
+    total_videos = len(video_files)
+    print(f"Found {total_videos} videos to process")
     
     for i, video_file in enumerate(video_files):
         video_path = os.path.join(video_dir, video_file)
@@ -550,7 +574,7 @@ def process_batch(video_dir: str,
     
     # Prepare batch result
     batch_result = {
-        "total_videos": len(video_files),
+        "total_videos": total_videos,
         "results": results,
         "timestamp": datetime.now().isoformat()
     }
@@ -566,12 +590,9 @@ def process_batch(video_dir: str,
         
     return batch_result
 
-import json
-import numpy as np
-
 class NumpyEncoder(json.JSONEncoder):
     """JSON encoder that handles NumPy types"""
-    def default(self, o):  # Changed parameter name from 'obj' to 'o' to match parent class
+    def default(self, o):  # Parameter name is correctly 'o'
         if isinstance(o, np.integer):
             return int(o)
         elif isinstance(o, np.floating):

@@ -27,3 +27,6 @@ scikit-learn
 scikit-image
 dlib
 onnx
+
+tensorflow>=2.8.0
+tensorflow-hub>=0.12.0

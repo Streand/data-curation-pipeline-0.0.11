@@ -177,6 +177,13 @@ if __name__ == "__main__":
     video_stage1_dir = os.path.join(store_images_dir, "video_stage_1")
     os.makedirs(video_stage1_dir, exist_ok=True)
     
+    # Add new directories for anime and nsfw processing
+    video_anime_dir = os.path.join(store_images_dir, "video_stage_anime")
+    os.makedirs(video_anime_dir, exist_ok=True)
+    
+    video_nsfw_dir = os.path.join(store_images_dir, "video_stage_nsfw")
+    os.makedirs(video_nsfw_dir, exist_ok=True)
+    
     # Create image and video subdirectories in uploads
     os.makedirs(UPLOADS_IMAGES_DIR, exist_ok=True)
     os.makedirs(UPLOADS_VIDEOS_DIR, exist_ok=True)

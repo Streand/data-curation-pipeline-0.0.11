@@ -113,7 +113,7 @@ def UI_video_stage_1(video_dir=None):
                 return status_msg
             return f"Video directory not found: {video_dir}"
         
-        # Updated process_videos function with face recognition support
+        # Updated process_videos function with face recognition (NSFW functionality removed)
         def process_videos(interval, ref_face_path, similarity_thresh):
             try:
                 start_time = time.time()
@@ -127,7 +127,7 @@ def UI_video_stage_1(video_dir=None):
                 if video_count == 0:
                     return [], {"error": "No videos found in directory"}, "No videos found in directory"
                 
-                # Process all videos with face recognition if reference face provided
+                # Process all videos with updated parameters
                 result = process_batch(
                     video_dir,
                     output_dir=output_dir, 
