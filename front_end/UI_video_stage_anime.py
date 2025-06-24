@@ -3,7 +3,7 @@ import gradio as gr
 import sys
 
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipelines"))
-from pipelines.videostageanime import process_anime_batch
+from pipelines.videostageanime import process_anime_batch_stage1, filter_frames_by_anime_character
 
 def UI_video_stage_anime(video_dir=None):
     with gr.Tab("Anime Processing"):
@@ -30,25 +30,6 @@ def UI_video_stage_anime(video_dir=None):
                 label="Frame Interval (process every Nth frame)"
             )
         
-        # Character reference selection
-        with gr.Row():
-            gr.Markdown("### Character Selection (Optional)")
-            gr.Markdown("Upload a reference image of the character you want to extract")
-        
-        with gr.Row():
-            reference_char = gr.Image(
-                label="Reference Character Image",
-                type="filepath",
-                value=None
-            )
-        
-        with gr.Row():
-            similarity_threshold = gr.Slider(
-                minimum=0.3, maximum=0.9, value=0.6, step=0.05,
-                label="Character Similarity Threshold",
-                info="Lower = more lenient matching, Higher = stricter matching"
-            )
-        
         # Process button
         with gr.Row():
             process_btn = gr.Button("Process Anime Videos", variant="primary")
@@ -65,43 +46,39 @@ def UI_video_stage_anime(video_dir=None):
         # Results display
         result_json = gr.JSON(label="Processing Results")
         
-        # Process function
-        def process_anime_videos(interval, ref_char_path, sim_threshold):
+        # Process function - SIMPLIFIED: Only frame extraction, no character filtering
+        def process_anime_videos(interval):
             try:
-                # Call the function from videostageanime.py
-                results = process_anime_batch(
-                    video_dir,
+                # Extract all frames
+                stage1_results = process_anime_batch_stage1(
+                    video_dir=video_dir,
                     output_dir=output_dir,
-                    frame_interval=interval,
-                    reference_char=ref_char_path,
-                    similarity_threshold=sim_threshold
+                    frame_interval=interval
                 )
                 
-                # Extract frames for gallery display
-                gallery_items = []
-                if "results" in results:
-                    for video_result in results["results"]:
-                        if "frames" in video_result:
-                            for frame in video_result["frames"][:20]:  # Limit display
-                                if "path" in frame:
-                                    label = f"Score: {frame.get('score', 0):.2f}"
-                                    if "character_similarity" in frame:
-                                        label += f", Char Match: {frame.get('character_similarity', 0):.2f}"
-                                    gallery_items.append((frame["path"], label))
+                if "error" in stage1_results:
+                    return [], stage1_results, f"Error in frame extraction: {stage1_results['error']}"
                 
-                status_msg = f"Processed {results.get('total_videos', 0)} anime videos"
-                if ref_char_path:
-                    status_msg += f" with character filtering (threshold: {sim_threshold:.2f})"
-                    
-                return gallery_items, results, status_msg
+                # Show regular extracted frames
+                gallery_items = []
+                for video_result in stage1_results.get("results", []):
+                    if video_result.get("status") == "success":
+                        for frame in video_result.get("frames", [])[:20]:  # Limit display
+                            if "path" in frame:
+                                timestamp = frame.get("timestamp", 0)
+                                gallery_items.append((frame["path"], f"Time: {timestamp:.2f}s"))
+                
+                status_msg = f"Processed {stage1_results.get('total_videos', 0)} anime videos. Extracted {stage1_results.get('total_frames_extracted', 0)} frames."
+                
+                return gallery_items, stage1_results, status_msg
                 
             except Exception as e:
                 return [], {"error": str(e)}, f"Error processing anime videos: {str(e)}"
         
-        # Connect event handler
+        # Connect event handler - UPDATED: Only frame_interval input
         process_btn.click(
             fn=process_anime_videos,
-            inputs=[frame_interval, reference_char, similarity_threshold],
+            inputs=[frame_interval],
             outputs=[gallery, result_json, status]
         )
         
