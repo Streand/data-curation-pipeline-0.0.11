@@ -26,7 +26,7 @@ def UI_video_stage_anime(video_dir=None):
         # Basic controls
         with gr.Row():
             frame_interval = gr.Slider(
-                minimum=1, maximum=30, value=3, step=1,
+                minimum=1, maximum=30, value=1, step=1,
                 label="Frame Interval (process every Nth frame)"
             )
         

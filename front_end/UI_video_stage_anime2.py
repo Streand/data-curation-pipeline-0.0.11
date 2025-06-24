@@ -49,9 +49,9 @@ def UI_video_stage_anime2(video_dir=None):
             
             with gr.Row():
                 max_results = gr.Slider(
-                    minimum=50, maximum=2000, value=500, step=50,
-                    label="Maximum Results Per Video",
-                    info="Limit the number of character matches per video"
+                    minimum=0, maximum=50000, value=0, step=100,
+                    label="Maximum Results Per Video (0 = unlimited)",
+                    info="Set to 0 for unlimited results, or limit for faster processing. Videos can have 30,000+ frames."
                 )
             
             with gr.Row():
@@ -101,12 +101,15 @@ def UI_video_stage_anime2(video_dir=None):
                 if not available:
                     return [], {"error": "No extracted frames found"}, "❌ No extracted frames found. Please run 'Anime Processing (Simple)' tab first to extract frames from videos."
                 
+                # Convert 0 to a large number for unlimited results (function expects int)
+                max_results_value = 999999 if max_res == 0 else max_res
+                
                 # Only do character filtering, NO frame extraction
                 results = process_character_filtering_batch(
                     frames_base_dir=output_dir,
                     reference_char_path=ref_img_path,
                     similarity_threshold=threshold,
-                    max_results_per_video=max_res
+                    max_results_per_video=max_results_value
                 )
                 
                 if "error" in results:
@@ -148,7 +151,8 @@ def UI_video_stage_anime2(video_dir=None):
                                 break
                 
                 videos_processed = len(available)
-                status_msg = f"✅ Character Search Complete! Found {total_matches} matches for character '{char_name}' across {videos_processed} videos"
+                results_text = "unlimited" if max_results_value is None else str(max_results_value)
+                status_msg = f"✅ Character Search Complete! Found {total_matches} matches for character '{char_name}' across {videos_processed} videos (limit: {results_text})"
                 return gallery_items, results, status_msg
                 
             except Exception as e:

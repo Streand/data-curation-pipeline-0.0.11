@@ -25,11 +25,11 @@ def UI_video_tab(video_dir=None):
                 UI_video_stage_2()
                 
             # Original anime processing
-            with gr.TabItem("Anime Processing (Simple)"):
+            with gr.TabItem("Animation Processing (Stage 1)"):
                 UI_video_stage_anime(video_dir)
             
             # New two-stage anime processing
-            with gr.TabItem("Anime Processing (2-Stage)"):
+            with gr.TabItem("Animation Processing (Stage 2)"):
                 UI_video_stage_anime2(video_dir)
             
             # NSFW analysis
