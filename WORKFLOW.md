@@ -8,7 +8,7 @@
                 └──File type split
                     |    |
                     |    └── Video Stored
-                    |         │                                                                                                                   
+                    |         |│                                                                                                                   
                     |         └── Video Analysis
                     |               |
                     |               └──> Stage 1 [OpenCV, InsightFace Thresholds:Low | Purpose: Maximize Recall | Speed: Fast]

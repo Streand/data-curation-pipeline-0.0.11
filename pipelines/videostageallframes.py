@@ -36,13 +36,18 @@ def check_gpu_optimization():
                 "is_blackwell": "50" in device_name or "blackwell" in device_name.lower()
             })
             
-            # Optimize batch size for Blackwell architecture
+            # FIXED: Optimize batch size for different GPU architectures
             if gpu_info["is_blackwell"]:
-                # More aggressive for RTX 5000 series
-                gpu_info["recommended_batch"] = min(64, max(32, int(memory_total * 2)))
+                # Aggressive batching for RTX 5000 series with 16GB VRAM
+                # Calculate based on available memory (8-16 frames per GB is reasonable)
+                base_batch = int(memory_total * 8)  # 8 frames per GB
+                gpu_info["recommended_batch"] = min(256, max(64, base_batch))  # 64-256 range
                 logger.info(f"Blackwell GPU detected: {device_name} - Using optimized batch size: {gpu_info['recommended_batch']}")
             else:
-                gpu_info["recommended_batch"] = min(32, max(16, int(memory_total * 1.5)))
+                # Conservative batching for older GPUs
+                base_batch = int(memory_total * 4)  # 4 frames per GB
+                gpu_info["recommended_batch"] = min(256, max(64, base_batch))  # 32-128 range
+                logger.info(f"GPU detected: {device_name} - Using batch size: {gpu_info['recommended_batch']}")
                 
         except Exception as e:
             logger.warning(f"Error getting GPU info: {e}")
