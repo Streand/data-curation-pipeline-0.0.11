@@ -4,7 +4,7 @@ from front_end.UI_video_stage_1 import UI_video_stage_1
 from front_end.UI_video_stage_2 import UI_video_stage_2
 from front_end.UI_video_stage_anime import UI_video_stage_anime
 from front_end.UI_video_stage_anime2 import UI_video_stage_anime2
-from front_end.UI_video_stage_nsfw import UI_video_stage_nsfw
+from front_end.UI_video_stage_allframes import UI_video_stage_allframes
 
 def UI_video_tab(video_dir=None):
     with gr.Tab("Video Processing"):
@@ -32,6 +32,7 @@ def UI_video_tab(video_dir=None):
             with gr.TabItem("Animation Processing (Stage 2)"):
                 UI_video_stage_anime2(video_dir)
             
-            # NSFW analysis
-            with gr.TabItem("NSFW Analysis"):
-                UI_video_stage_nsfw(video_dir)
+            # All Frames Extraction - NEW TAB
+            with gr.TabItem("All Frames Extraction"):
+                UI_video_stage_allframes(video_dir)
+            

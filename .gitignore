@@ -6,3 +6,5 @@ store_images/
 models/
 test_images/
 temp/
+all_data_storage/
+all_data_storage/allframes/
